@@ -38,7 +38,6 @@ docker run -d \
   --restart unless-stopped \
   -p 8080:8501 \
   --env-file .env \
-  -v /opt/rag-search/data:/app/data:ro \
   rag-search:latest
 
 # Check status

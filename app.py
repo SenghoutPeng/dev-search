@@ -21,7 +21,7 @@ DATASETS = {
     "Git documentation": "data/git_docs",
 }
 
-st.set_page_config(page_title="RAG Search", page_icon="🔎", layout="wide")
+st.set_page_config(page_title="Dev Search", page_icon="", layout="wide")
 
 
 @st.cache_resource(show_spinner="Loading and indexing documents...")
@@ -57,7 +57,7 @@ with st.sidebar:
         for d in docs:
             st.write(f"- {d['title']}")
 
-st.title("🔎 RAG-Based AI Search System")
+st.title("Dev Search")
 st.caption("Ask a question about the indexed documents below.")
 
 with st.form("search_form"):
