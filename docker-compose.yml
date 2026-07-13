@@ -13,6 +13,5 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
-      - ./data:/app/data:ro
-      - ./rag:/app/rag:ro
+      - ./data:/app/data
     restart: unless-stopped
