@@ -1,0 +1,107 @@
+Database Indexing - How Indexes Speed Up Queries
+
+Introduction
+
+An index is an auxiliary data structure that lets a database engine locate rows matching a condition without scanning every row in a table. Indexes trade extra storage and slower writes for dramatically faster reads on the columns they cover. Understanding how indexes are built and when they help (or don't) is fundamental to writing performant database applications.
+
+Why Indexes Exist
+
+Without an index, a query filtering on a column requires a full table scan: the engine reads every row in the table and checks whether it matches the condition. For a table with a million rows, finding the handful matching a WHERE clause means examining all million. An index reorganizes a subset of columns into a structure that supports much faster lookup, so a query can jump almost directly to matching rows instead of scanning the entire table.
+
+```sql
+SELECT * FROM users WHERE email = 'jane@example.com';
+```
+
+Without an index on email, this scans the whole users table. With an index on email, the engine consults the index structure to find the matching row(s) in a small number of steps, regardless of table size.
+
+B-Tree Indexes
+
+The B-tree (balanced tree) is the default index structure in most relational databases, including PostgreSQL, MySQL's InnoDB engine, and SQLite. A B-tree keeps keys in sorted order across a tree of nodes, where each node can have many children, keeping the tree shallow even for large tables. Because keys are sorted, a B-tree efficiently supports not just exact-match lookups but also range queries and ordering:
+
+```sql
+CREATE INDEX idx_users_age ON users(age);
+
+SELECT * FROM users WHERE age = 30;         -- exact match
+SELECT * FROM users WHERE age BETWEEN 20 AND 40;  -- range scan
+SELECT * FROM users ORDER BY age;           -- already sorted, no separate sort step needed
+```
+
+Lookups, range scans, and ordered retrieval on a B-tree all take roughly logarithmic time relative to the number of rows, since each step down the tree eliminates a large fraction of the remaining search space. This is why B-tree is the general-purpose default: it handles equality, ranges, prefix matching (for LIKE 'abc%'), and sorting all reasonably well with a single structure.
+
+Hash Indexes
+
+A hash index applies a hash function to the indexed column's value and uses the resulting hash to locate the row directly, similar to how a hash map works in memory. Hash indexes support only exact-match equality lookups (WHERE column = value) — they cannot be used for range queries, ordering, or prefix matching, since hashing destroys any notion of the values' relative order:
+
+```sql
+-- PostgreSQL supports explicit hash indexes
+CREATE INDEX idx_users_email_hash ON users USING HASH (email);
+
+SELECT * FROM users WHERE email = 'jane@example.com'; -- fast, hash lookup
+SELECT * FROM users WHERE email LIKE 'jane%';          -- cannot use a hash index
+```
+
+In practice, hash indexes are less commonly used than B-trees because most real-world query patterns eventually need range queries or sorting on the same column, and a single B-tree index can serve both needs, whereas a hash index is a narrower, single-purpose tool. Some in-memory or specialized key-value stores rely on hashing as their primary access method, but general-purpose relational databases mostly default to B-tree even when only equality lookups are anticipated today.
+
+When to Add an Index
+
+An index is worth adding when a column is frequently used in a WHERE clause, a JOIN condition, an ORDER BY clause, or as part of a foreign key relationship, and the table is large enough that a full scan is measurably slow. Common candidates include primary keys (indexed automatically by virtually every database), foreign key columns (frequently joined on), and columns used in login or lookup flows such as email or username.
+
+An index is generally not worth adding on columns rarely filtered on, on very small tables where a full scan is already fast, or on columns with very low cardinality (few distinct values, such as a boolean flag), where an index provides little benefit because a large fraction of rows match any given value anyway, and the query planner may reasonably choose to ignore the index and scan the table instead.
+
+Composite (Multi-Column) Indexes
+
+A composite index spans more than one column, storing rows sorted first by the first column, then by the second column within each value of the first, and so on:
+
+```sql
+CREATE INDEX idx_orders_user_status ON orders(user_id, status);
+```
+
+This index efficiently supports queries that filter on user_id alone, or on both user_id and status together, because the sort order groups all rows for a given user_id contiguously, and within that group sorts by status:
+
+```sql
+SELECT * FROM orders WHERE user_id = 42;                     -- uses the index
+SELECT * FROM orders WHERE user_id = 42 AND status = 'paid';  -- uses the index fully
+SELECT * FROM orders WHERE status = 'paid';                   -- generally cannot use this index efficiently
+```
+
+The last query cannot efficiently use idx_orders_user_status because status is the second column in the composite index — without a known user_id to narrow down the starting point in the tree, the database can't jump directly to rows with status = 'paid'; it would need to scan through the whole index (or the whole table). This is often summarized as the "leftmost prefix rule": a composite index on (a, b, c) can serve queries filtering on a, on a and b, or on a, b, and c together, but generally not on b or c alone without a. Column order in a composite index should be chosen based on the most common query patterns, typically putting the most selective or most frequently filtered-alone column first.
+
+Covering Indexes
+
+A covering index is one that includes every column a particular query needs, either as an indexed key or as an additional stored column, so the database can answer the query using only the index itself, without a separate lookup back into the actual table rows (often called a "table access by index rowid" or "bookmark lookup" step):
+
+```sql
+CREATE INDEX idx_orders_covering ON orders(user_id, status, total);
+
+SELECT status, total FROM orders WHERE user_id = 42;
+```
+
+Because status and total are both part of the index (status as a key column, total effectively along for the ride once included), the database can satisfy this query entirely from the index structure, skipping the extra step of fetching the full row from the table. This is particularly valuable for queries that run very frequently, since avoiding the extra row fetch reduces I/O. Some databases (PostgreSQL, SQL Server) support an explicit INCLUDE clause to add non-key columns to an index purely for covering purposes, without making them part of the sort order:
+
+```sql
+CREATE INDEX idx_orders_covering2 ON orders(user_id) INCLUDE (status, total);
+```
+
+Unique Indexes
+
+A unique index enforces that no two rows share the same value (or combination of values, for a composite unique index) in the indexed column(s), in addition to providing the same lookup speed benefits as a regular index. Primary keys and columns marked UNIQUE in a CREATE TABLE statement are backed by a unique index automatically:
+
+```sql
+CREATE UNIQUE INDEX idx_users_email_unique ON users(email);
+```
+
+Attempting to insert or update a row that would create a duplicate value raises a constraint violation error rather than silently allowing the duplicate, which makes unique indexes a common tool for enforcing business rules like "each user has one email address" directly at the database level rather than relying solely on application code to check first.
+
+The Write Cost of Indexes
+
+Every index maintained on a table must be updated whenever a row is inserted, updated (on an indexed column), or deleted, since the index's sorted or hashed structure has to stay consistent with the underlying table data. A table with five indexes pays the cost of five index updates (roughly) for every single row insert, in addition to the write to the table itself. This is why indexing is a genuine tradeoff rather than a free performance win: adding an index speeds up reads that use it, but slows down every write to that table, and consumes additional disk space to store the index structure itself.
+
+In write-heavy tables (such as an audit log or an event stream that's rarely queried by arbitrary columns), it's often better to keep the number of indexes minimal, indexing only the columns that truly need fast lookup, such as a primary key or a timestamp used for range queries. In read-heavy tables that are queried far more often than they're written to, it's usually worth adding more indexes even at some write-time cost, since the aggregate read speedup outweighs the aggregate write slowdown.
+
+Index Selectivity
+
+Selectivity describes how effectively an index narrows down the search: a highly selective index (one where indexed values are mostly unique, such as an email column) eliminates most of the table with each lookup, while a low-selectivity index (such as one on a boolean is_active column with only two possible values) eliminates comparatively little, since roughly half the table shares each value. Query planners take selectivity into account when deciding whether using a particular index is actually faster than a full table scan; for very low-selectivity columns, the planner may correctly decide a full scan is cheaper than following the index and then fetching each matching row individually.
+
+Practical Guidance
+
+Index foreign keys used in JOINs, and columns frequently appearing in WHERE clauses or ORDER BY. Favor composite indexes ordered by query pattern (most selective or most-filtered column first) over many separate single-column indexes when queries commonly filter on the same combination of columns together. Use EXPLAIN (or the equivalent query plan tool in your database) to verify that a query is actually using the index you expect, since an unused index provides no benefit while still incurring write overhead. Periodically review indexes on a mature application and remove ones that are never used by any query, since every unused index is pure write-cost with no offsetting benefit.

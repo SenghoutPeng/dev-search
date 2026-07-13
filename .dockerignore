@@ -1,0 +1,9 @@
+.venv
+__pycache__
+.git
+.gitignore
+.env.example
+*.pyc
+.DS_Store
+.streamlit/cache
+.streamlit/secrets.toml

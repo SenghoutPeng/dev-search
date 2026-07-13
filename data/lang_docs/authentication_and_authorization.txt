@@ -1,0 +1,223 @@
+Authentication and Authorization - Security Fundamentals
+
+Introduction
+
+Authentication and authorization are distinct but complementary security mechanisms that every web application needs. Authentication answers "Who are you?" by verifying a user's identity. Authorization answers "What can you do?" by determining what authenticated users are allowed to access or modify.
+
+Understanding the difference between these concepts is crucial for building secure systems. Many security vulnerabilities arise from confusing or misimplementing these concepts.
+
+Authentication Concepts
+
+Authentication is the process of verifying that a user is who they claim to be. It happens before authorization and establishes the user's identity.
+
+Authentication Methods
+
+Password-Based Authentication: Traditional username and password. Server stores a hashed version of the password (never plain text). When user logs in, their entered password is hashed and compared to the stored hash. Advantages: simple to implement. Disadvantages: vulnerable to phishing, weak password choices, and must be transmitted securely over HTTPS.
+
+One-Time Passwords (OTP): Time-based or event-based codes (TOTP, HOTP). User enters a 6-digit code from an authenticator app or SMS. More secure than passwords alone. Used as second factor in multi-factor authentication (MFA).
+
+Passkeys: Modern approach using cryptographic key pairs. User registers a key pair; server stores public key. Authentication uses the private key to sign a challenge. Phishing-resistant and passwordless. Gaining adoption through WebAuthn standard.
+
+Federated Identity: Third-party providers handle authentication (OAuth, OpenID Connect). Examples: "Login with Google," "Login with GitHub." User authenticates with the external provider, which confirms identity to your application.
+
+Session Management: After authentication, user receives a session token or cookie. This token is sent with subsequent requests to prove the user is authenticated. Session must be securely stored and transmitted.
+
+Authentication Examples
+
+HTTP Basic Authentication: Credentials sent in Authorization header as base64-encoded username:password.
+
+```
+Authorization: Basic am9objpwYXNzd29yZA==
+```
+
+Bearer Token (JWT): Server issues a signed token containing user information. Client sends the token in Authorization header.
+
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+Session Cookie: After login, server sends a Set-Cookie header with a session ID. Browser automatically sends the cookie with each request.
+
+```
+Set-Cookie: sessionId=abc123xyz; Path=/; HttpOnly
+```
+
+Authorization Concepts
+
+Authorization determines what an authenticated user can do. It controls access to resources and operations. While authentication might verify that you are John Smith, authorization determines whether John Smith can access the admin panel.
+
+Authorization Models
+
+Role-Based Access Control (RBAC): Users are assigned roles (admin, user, moderator), and roles have permissions. Simple and widely used.
+
+```
+User has role 'admin'
+Admin role has permissions: delete_users, edit_settings, view_logs
+```
+
+Attribute-Based Access Control (ABAC): More granular. Access decisions based on attributes like user role, resource type, time of day, IP address, etc.
+
+```
+Allow if: user.role == 'admin' AND request.time < 22:00
+Allow if: user.department == 'finance' AND resource.type == 'expense_report'
+```
+
+Access Control Lists (ACL): Define permissions for specific users on specific resources.
+
+```
+User 123 can: read, write to document 456
+User 789 can: read document 456
+```
+
+Permission-Based: Users have specific permissions granted directly.
+
+```
+User 123 has permissions: users.create, users.delete, settings.edit
+```
+
+Authorization Examples
+
+Route-level authorization:
+
+```
+GET /admin - requires admin role
+GET /users/123 - requires user to be authenticated
+GET /users/123/settings - requires user 123 to be authenticated
+DELETE /users/123 - requires admin role
+POST /users/123/posts - requires user to own the account
+```
+
+Resource-level authorization (Insecure Direct Object Reference prevention):
+
+```
+GET /users/123 - return 200 if current user is 123, return 403 otherwise
+GET /files/456 - return 200 if user has access to file 456, return 404 otherwise
+```
+
+Field-level authorization:
+
+```
+User can see: name, email, created_date
+Admin can see: name, email, created_date, ip_address, last_login, payment_info
+```
+
+Key Differences
+
+Authentication verifies identity, answering "Who are you?", and happens before authorization; its credentials are passwords, tokens, or biometrics, and failure results in a 401 Unauthorized, with logging in as the typical example. Authorization controls access, answering "What can you do?", and happens after authentication; it's based on roles, permissions, and policies, and failure results in a 403 Forbidden, with accessing an admin panel as the typical example.
+
+Authentication must happen first. You cannot authorize an unauthenticated user.
+
+Common Security Patterns
+
+Multi-Factor Authentication (MFA): Requires multiple verification methods. Example: password + OTP code. More secure than single-factor because compromising one factor doesn't compromise the system.
+
+Session Management: After authentication, maintain authenticated state using:
+- Server-side sessions: Store session data on server, send session ID to client
+- Token-based (JWT): Encode user data in signed token, client sends token
+
+HTTPS/TLS: Always transmit credentials and session tokens over HTTPS, never HTTP. Encryption prevents interception.
+
+Secure Cookie Configuration: Use flags to protect session cookies:
+- HttpOnly: JavaScript cannot access (prevents XSS theft)
+- Secure: Only sent over HTTPS
+- SameSite: Only sent for same-site requests (prevents CSRF)
+
+Password Hashing: Store passwords hashed with salt, not plain text. Use modern algorithms like bcrypt, scrypt, or Argon2. Never use MD5 or SHA-1 for passwords.
+
+Rate Limiting: Limit login attempts to prevent brute-force attacks. Lock account after N failures or require waiting period.
+
+Common Attacks and Defenses
+
+Phishing: Attackers trick users into entering credentials on fake sites. Defense: teach users to recognize real sites, use passkeys, implement MFA.
+
+Credential Stuffing: Attackers use stolen username/password pairs from other breaches. Defense: encourage unique passwords, monitor for account compromise, implement rate limiting.
+
+Session Hijacking: Attacker steals session cookie/token. Defense: use HTTPS, HttpOnly cookies, short token expiration, token rotation.
+
+Insecure Direct Object Reference (IDOR): Attacker modifies URL to access another user's data. Defense: validate that user has permission to access the requested resource.
+
+Privilege Escalation: Attacker manipulates authorization to gain higher privileges. Defense: implement proper authorization checks, never trust client-provided role/permission info.
+
+Cross-Site Request Forgery (CSRF): Attacker tricks user into making unwanted requests. Defense: use CSRF tokens, SameSite cookies, verify request origin.
+
+Brute Force: Attacker tries many password combinations. Defense: rate limiting, account lockout, strong password requirements.
+
+Implementation Patterns
+
+Basic session-based authentication:
+
+1. User submits username and password
+2. Server validates credentials
+3. Server creates session and stores in database
+4. Server sends session ID in Set-Cookie header
+5. Browser includes session cookie in subsequent requests
+6. Server validates session ID on each request
+
+JWT token-based authentication:
+
+1. User submits username and password
+2. Server validates credentials
+3. Server creates JWT containing user ID and expiration
+4. Server signs JWT with secret key
+5. Client stores JWT (localStorage, sessionStorage, or cookie)
+6. Client sends JWT in Authorization header with each request
+7. Server verifies JWT signature and expiration
+
+OAuth2 federated authentication:
+
+1. User clicks "Login with Google"
+2. Application redirects to Google authorization endpoint
+3. User authenticates with Google and authorizes application
+4. Google redirects to application with authorization code
+5. Application exchanges code for access token from Google
+6. Application uses token to get user information from Google
+7. Application creates local session for user
+
+Authorization check pattern:
+
+```
+if !isAuthenticated(req) {
+  return 401 Unauthorized
+}
+
+if !hasPermission(req.user, required_permission) {
+  return 403 Forbidden
+}
+
+// Proceed with operation
+```
+
+Testing Authentication and Authorization
+
+Unit test authentication:
+- Valid credentials return user
+- Invalid credentials return error
+- Password hashing works correctly
+- Tokens can be signed and verified
+
+Unit test authorization:
+- Users with role can access resource
+- Users without role cannot access resource
+- Resource ownership is verified
+- Permissions are correctly checked
+
+Integration test:
+- Full login flow works end-to-end
+- Session persists across requests
+- Token expiration enforces re-authentication
+- Logging out clears session
+
+Best Practices Summary
+
+Use HTTPS everywhere - never transmit credentials over unencrypted connections
+Hash passwords with modern algorithms - bcrypt, scrypt, or Argon2
+Implement MFA for sensitive accounts - adds significant security
+Short token expiration - limits damage from token compromise
+Validate authorization on every request - never trust client-provided claims
+Log authentication and authorization decisions - helps detect attacks
+Educate users about security - phishing prevention, strong passwords
+Keep authentication simple for users - too complex leads to workarounds
+Never store passwords - only store hashes
+Implement rate limiting - slows down brute force attacks
+
+Authentication and authorization are non-negotiable aspects of web security. Properly implementing both is essential for protecting user data and application integrity.

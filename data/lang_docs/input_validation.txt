@@ -1,0 +1,306 @@
+Input Validation - Securing Web Applications
+
+Introduction
+
+Input validation is the process of verifying that data from external sources meets requirements before your application processes it. This is the first line of defense against security vulnerabilities, malicious attacks, and data corruption. Never trust data from clients, users, APIs, or any external source.
+
+The fundamental principle: Always validate user input. Assume every piece of user-supplied data is potentially malicious until proven safe.
+
+Why Validation Matters
+
+Input validation prevents:
+- Injection attacks (SQL injection, command injection)
+- Cross-site scripting (XSS) attacks
+- Data corruption
+- Denial of service attacks
+- Application crashes
+- Unauthorized access
+
+A single unvalidated input field can compromise an entire application and expose user data.
+
+Validation vs Sanitization
+
+Input Validation: Checking that data matches expected format/values. Rejects invalid data.
+
+```
+Email validation: Check format matches user@domain.com
+Phone validation: Check format is 10 digits
+Age validation: Check is a number between 0 and 150
+```
+
+Sanitization: Cleaning data by removing or encoding dangerous characters. Accepts data but modifies it.
+
+```
+Remove HTML tags from user comments
+Escape SQL special characters
+Remove leading/trailing whitespace
+```
+
+Both are important but serve different purposes. Validation prevents bad data. Sanitization cleans data that will be displayed or used in commands.
+
+Validation Techniques
+
+Whitelist (Allow List): Define what's allowed, reject everything else. Most secure approach.
+
+```
+Allowed characters: a-z, A-Z, 0-9
+Allowed values: ['admin', 'user', 'guest']
+Allowed formats: email addresses
+```
+
+Blacklist (Block List): Define what's forbidden, allow everything else. Less secure because you can't anticipate all dangerous inputs.
+
+```
+Forbidden characters: <, >, ", ', ;
+Don't use blacklists for security
+```
+
+Format Validation: Check data matches expected format.
+
+```
+Email: user@domain.com
+Phone: (123) 456-7890 or 123-456-7890
+Date: YYYY-MM-DD
+URL: http(s)://domain.com/path
+```
+
+Type Validation: Check data is correct type.
+
+```
+Age must be integer
+Price must be decimal
+Active must be boolean
+```
+
+Range Validation: Check numeric values are within acceptable range.
+
+```
+Age: 0-150
+Price: 0.00-999999.99
+Rating: 1-5
+Page number: 1-MAX
+```
+
+Length Validation: Check text is appropriate length.
+
+```
+Username: 3-50 characters
+Password: at least 8 characters
+Description: max 5000 characters
+```
+
+Regular Expressions: Pattern matching for complex validation.
+
+```
+Email: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
+Phone: ^(\d{3})[-.]\d{3}[-.]\d{4}$
+ZIP code: ^\d{5}(-\d{4})?$
+```
+
+Common Validation Rules
+
+Email addresses:
+- Must contain @ symbol
+- Must have local part (before @) and domain (after @)
+- Domain must have at least one dot
+- Use regex or email validation library
+- Consider verifying email exists by sending confirmation
+
+URLs:
+- Must be valid format (http:// or https://)
+- Must be from trusted domain (if restricting)
+- Check URL isn't pointing to internal resources
+- Validate URL doesn't contain dangerous characters
+
+Numbers:
+- Check is valid number
+- Check within acceptable range
+- Check not null/empty if required
+- Be careful with float precision
+
+Text:
+- Check length not too long
+- Check not empty if required
+- Check only contains allowed characters
+- HTML and special characters often need escaping
+
+Dates:
+- Check valid date (not February 30)
+- Check within reasonable range
+- Use date parsing library, not manual parsing
+- Be aware of timezone issues
+
+File uploads:
+- Check file size not too large
+- Check file extension against whitelist
+- Check MIME type matches extension
+- Store outside web root
+- Don't execute uploaded files
+- Scan for malware
+
+Validation Implementation
+
+Server-side validation (required):
+
+Always validate on server. Never rely only on client-side validation because attackers can bypass it.
+
+```javascript
+app.post('/users', (req, res) => {
+  const { name, email, age } = req.body;
+
+  // Validate email format
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({error: 'Invalid email'});
+  }
+
+  // Validate age is number and in range
+  if (!Number.isInteger(age) || age < 0 || age > 150) {
+    return res.status(400).json({error: 'Invalid age'});
+  }
+
+  // Validate name length
+  if (!name || name.length < 2 || name.length > 100) {
+    return res.status(400).json({error: 'Invalid name'});
+  }
+
+  // Data is valid, proceed
+});
+```
+
+Client-side validation (helpful but not sufficient):
+
+Client-side validation improves user experience by catching errors before sending to server. But it's not security - users can disable JavaScript or manipulate requests.
+
+```html
+<form>
+  <input type="email" name="email" required pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$">
+  <input type="number" name="age" min="0" max="150">
+  <input type="text" name="name" minlength="2" maxlength="100" required>
+  <button type="submit">Submit</button>
+</form>
+```
+
+Use validation libraries:
+
+```javascript
+const Joi = require('joi');
+
+const schema = Joi.object({
+  email: Joi.string().email().required(),
+  age: Joi.number().integer().min(0).max(150).required(),
+  name: Joi.string().min(2).max(100).required()
+});
+
+const { error, value } = schema.validate(req.body);
+if (error) {
+  return res.status(400).json({error: error.details[0].message});
+}
+```
+
+SQL Injection Prevention
+
+SQL injection occurs when user input is embedded directly in SQL queries:
+
+Vulnerable (DON'T DO THIS):
+
+```python
+query = f"SELECT * FROM users WHERE email = '{email}'"
+```
+
+If email is `' OR '1'='1`, the query becomes:
+SELECT * FROM users WHERE email = '' OR '1'='1'
+
+This returns all users! Attacker gains unauthorized access.
+
+Protection: Use parameterized queries/prepared statements:
+
+```python
+# Safe - uses parameters
+cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+
+# Or using ORM
+user = User.query.filter_by(email=email).first()
+```
+
+Parameterized queries ensure user input is treated as data, not code.
+
+Cross-Site Scripting (XSS) Prevention
+
+XSS occurs when unvalidated user input is displayed to other users:
+
+Vulnerable:
+
+```html
+<p>Comment: <%= userComment %></p>
+```
+
+If userComment is `<img src=x onerror="alert('hacked')">`, the script executes!
+
+Protection: HTML escape output:
+
+```html
+<p>Comment: <%= escapeHtml(userComment) %></p>
+```
+
+Escaping converts `<` to `&lt;` and `>` to `&gt;`, preventing script execution.
+
+Use your framework's auto-escaping templates or libraries:
+
+```javascript
+// JavaScript
+const safe = document.createTextNode(userComment);
+
+// React (auto-escapes)
+<p>Comment: {userComment}</p>
+
+// Python (with Jinja2)
+<p>Comment: {{ userComment }}</p>
+```
+
+Command Injection Prevention
+
+Don't embed user input in shell commands:
+
+Vulnerable:
+
+```bash
+filename = request.args.get('file')
+os.system(f"process_file {filename}")
+```
+
+If filename is `; rm -rf /`, it deletes everything!
+
+Protection: Use APIs instead of shell commands:
+
+```python
+subprocess.run(['process_file', filename], check=True)
+```
+
+Validation Checklist
+
+Identify all inputs: Forms, APIs, cookies, headers, file uploads, query parameters
+Define acceptance criteria: What formats/values are valid?
+Implement server-side validation: Always validate on server
+Validate type: Is it the right data type?
+Validate format: Does it match expected format?
+Validate range: Is it within acceptable bounds?
+Validate length: Is text an acceptable length?
+Reject invalid data: Return error, don't accept bad data
+Log attempts: Track validation failures for security analysis
+Sanitize when necessary: HTML escape, SQL escape, etc.
+Test edge cases: Empty strings, null values, very long inputs, special characters
+Use libraries: Don't write validation from scratch
+
+Common Validation Errors
+
+Trusting client-side validation: Always validate on server
+Blacklisting instead of whitelisting: Use allow lists
+Not validating all inputs: Every input needs validation
+Storing unvalidated data: Validate before storage
+Trusting API inputs: Validate data from external APIs
+Ignoring error handling: Handle validation failures gracefully
+Generic error messages: Don't reveal system details ("User not found" is bad)
+
+The principle of "defense in depth" suggests using multiple validation layers. Client-side validation for UX, server-side for security, database constraints for data integrity, and proper output encoding for display.
+
+Input validation is not optional - it's essential for secure applications. Every vulnerability and data breach trace back to inadequate input validation.

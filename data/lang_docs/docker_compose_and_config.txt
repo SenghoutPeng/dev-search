@@ -1,0 +1,162 @@
+Docker Compose: Overview and Benefits
+
+What Docker Compose Does
+
+Docker Compose is a tool that enables you to define and manage multi-container applications using a single YAML configuration file. It streamlines the process of orchestrating multiple interconnected services and their dependencies.
+
+Key Benefits
+
+Simplified Management: define and manage multi-container apps in one YAML file, streamlining orchestration and replication.
+
+Enhanced Teamwork: shareable configuration files facilitate better cooperation between development and operations teams, accelerating problem-solving and boosting overall productivity.
+
+Faster Development Cycles: Compose caches the configuration used to create a container. When you restart a service that has not changed, Compose reuses the existing containers. This capability allows rapid modifications to your setup without rebuilding from scratch.
+
+Environment Flexibility: the tool supports variable substitution within configuration files, enabling customization across different deployment environments and user preferences.
+
+Primary Use Cases
+
+Development Environments: developers can run isolated applications and interact with them directly. A single Compose file documents all service dependencies (databases, caches, APIs, queues), and a single command (docker compose up) launches all required containers.
+
+Automated Testing: create and destroy isolated testing environments on demand, making continuous integration and deployment pipelines more efficient:
+
+docker compose up -d
+./run_tests
+docker compose down
+
+Single-Host Production Deployments: deploy applications to remote Docker hosts with production-specific configuration management.
+
+The Compose File
+
+A Compose file is a YAML file, conventionally named compose.yaml (older projects use docker-compose.yml), that defines services, networks, and volumes for a Docker application. A minimal example defining two services — a web app and a Redis cache — looks like this:
+
+services:
+  web:
+    build: .
+    ports:
+      - "8000:5000"
+    depends_on:
+      - redis
+  redis:
+    image: "redis:alpine"
+
+Each top-level entry under services becomes its own container when the application is started, and depends_on expresses a startup ordering: Compose starts redis before starting web, though it does not wait for redis's application inside the container to be ready — only for the container itself to start.
+
+Core Compose Commands
+
+Start all services in the compose file, in detached (background) mode:
+
+docker compose up -d
+
+Stop and remove containers, networks created by up:
+
+docker compose down
+
+View aggregated logs from every running service:
+
+docker compose logs -f
+
+List the containers managed by the current compose project:
+
+docker compose ps
+
+Rebuild images before starting (useful after changing a Dockerfile referenced by build:):
+
+docker compose up --build
+
+Run a one-off command inside a service's container, useful for running database migrations or an interactive shell without starting the whole application:
+
+docker compose run web python manage.py migrate
+
+Scaling Services
+
+Compose can run multiple instances of a given service simultaneously, useful for locally simulating a load-balanced deployment:
+
+docker compose up --scale web=3
+
+This starts three containers from the web service definition, each getting its own container name suffixed with an instance number, while still sharing the same image, environment, and network configuration defined in the compose file.
+
+Environment Variables and .env Files
+
+Compose automatically reads a .env file located next to the compose file and substitutes ${VARIABLE} references found inside the compose file itself, which is the standard way to keep secrets and per-environment configuration (database passwords, API keys, hostnames) out of the compose file and out of version control:
+
+services:
+  web:
+    image: "myapp:${TAG}"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+
+Networking Between Services
+
+By default, Compose creates a single dedicated network for the whole application, and every service defined in the file joins it automatically. This means services can reach each other using the service name as a hostname — for example, the web service above can connect to Redis simply by connecting to host redis on Redis's default port, without any manual Docker network setup, since Compose's built-in DNS resolves service names to the right container IP automatically.
+
+
+Docker: Environment Variables and Container Configuration
+
+Source: consolidated from https://docs.docker.com/reference/dockerfile/ and docker run reference
+
+Setting Environment Variables
+
+Environment variables can be baked into an image with the Dockerfile's ENV instruction, or supplied at runtime without modifying the image at all, using the -e (or --env) flag on docker run:
+
+docker run -e DATABASE_URL=postgres://localhost/mydb -e DEBUG=true myapp
+
+Runtime environment variables passed via -e override any ENV value baked into the image with the same name, which is exactly the mechanism that lets the same built image be deployed with different configuration across development, staging, and production environments, without rebuilding it for each one.
+
+Loading Environment Variables from a File
+
+For a large number of variables, an --env-file avoids an unwieldy command line full of repeated -e flags:
+
+docker run --env-file ./production.env myapp
+
+The referenced file uses simple KEY=VALUE lines, one per variable, with lines starting with # treated as comments and ignored.
+
+Build Arguments vs Environment Variables
+
+It's important to distinguish ARG (available only during the image build, via --build-arg) from ENV (baked into the image and available both during build and at container runtime). A common pattern uses an ARG to parameterize which value gets baked into a subsequent ENV, letting the build itself vary per build invocation while producing an image with a fixed environment variable value:
+
+ARG APP_VERSION=1.0.0
+ENV APP_VERSION=${APP_VERSION}
+
+docker build --build-arg APP_VERSION=2.1.0 -t myapp .
+
+Because ARG values are not automatically available at container runtime the way ENV values are, any value a running container needs to read (not just the build process) must ultimately be captured into an ENV instruction if it needs to originate from a build argument.
+
+Configuring Restart Behavior
+
+The --restart flag controls whether Docker automatically restarts a container after it exits, which matters for any long-running service expected to recover from crashes without manual intervention:
+
+docker run --restart=always myapp
+docker run --restart=on-failure:5 myapp  # retry up to 5 times, only on non-zero exit
+docker run --restart=unless-stopped myapp  # restart unless explicitly stopped by the user
+
+unless-stopped is a common choice for production services, since it restarts automatically after a crash or host reboot, but respects an operator's explicit docker stop command rather than immediately restarting the container right back up.
+
+Resource Limits
+
+Beyond environment configuration, docker run accepts flags constraining how much CPU and memory a container may consume, protecting the host and other containers from one runaway process:
+
+docker run --memory=512m --memory-swap=1g --cpus=1.5 myapp
+
+--memory sets a hard memory ceiling (the container is killed if it exceeds this), --memory-swap sets the combined memory-plus-swap ceiling, and --cpus limits the container to a fractional or whole number of CPU cores' worth of processing time.
+
+Passing Configuration via Docker Compose
+
+In a Compose file, the equivalent configuration is expressed declaratively rather than as command-line flags, which is generally easier to keep under version control and review as part of a normal code change:
+
+services:
+  web:
+    image: myapp
+    environment:
+      - DATABASE_URL=postgres://db/mydb
+      - DEBUG=true
+    env_file:
+      - ./production.env
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.5"
+
+This mirrors the same underlying Docker Engine features (environment variables, restart policy, resource limits) but expressed as reviewable, versioned YAML rather than a long imperative command line, which is one of the main practical advantages of Compose for anything beyond a single quick docker run invocation.

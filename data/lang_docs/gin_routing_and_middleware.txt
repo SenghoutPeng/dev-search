@@ -1,0 +1,519 @@
+Using HTTP Methods in Gin Web Framework
+
+Source: https://gin-gonic.com/en/docs/routing/http-method/
+
+Overview
+
+The Gin framework provides direct methods for handling HTTP verbs, simplifying the creation of RESTful APIs. Each method responds exclusively to its corresponding HTTP request type.
+
+Typical REST usage by method: GET retrieves a resource, POST creates a new resource, PUT replaces an existing resource, PATCH partially updates an existing resource, DELETE removes a resource, HEAD behaves like GET but without a body, and OPTIONS describes communication options.
+
+Code Example
+
+```go
+package main
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+func getting(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"method": "GET"})
+}
+func posting(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"method": "POST"})
+}
+func putting(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"method": "PUT"})
+}
+func deleting(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"method": "DELETE"})
+}
+func patching(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"method": "PATCH"})
+}
+func head(c *gin.Context) {
+	c.Status(http.StatusOK)
+}
+func options(c *gin.Context) {
+	c.Status(http.StatusOK)
+}
+
+func main() {
+	router := gin.Default()
+
+	router.GET("/someGet", getting)
+	router.POST("/somePost", posting)
+	router.PUT("/somePut", putting)
+	router.DELETE("/someDelete", deleting)
+	router.PATCH("/somePatch", patching)
+	router.HEAD("/someHead", head)
+	router.OPTIONS("/someOptions", options)
+
+	router.Run() // Serves on :8080 by default
+}
+```
+
+Testing with curl
+
+Once the server runs, test endpoints using these commands:
+
+```bash
+curl -X GET http://localhost:8080/someGet
+curl -X POST http://localhost:8080/somePost
+curl -X PUT http://localhost:8080/somePut
+curl -X DELETE http://localhost:8080/someDelete
+curl -X PATCH http://localhost:8080/somePatch
+curl -I http://localhost:8080/someHead
+curl -X OPTIONS http://localhost:8080/someOptions
+```
+
+Path Parameters
+
+Gin routes support named path parameters, prefixed with a colon, which are extracted at request time via c.Param():
+
+router.GET("/user/:name", func(c *gin.Context) {
+	name := c.Param("name")
+	c.String(http.StatusOK, "Hello %s", name)
+})
+
+A parameter matches a single path segment only — a request to /user/john/doe would not match /user/:name, since :name only captures up to the next slash.
+
+Wildcard Parameters
+
+An asterisk-prefixed parameter matches everything after that point in the path, including additional slashes, which is useful for catch-all routes like serving arbitrary nested file paths:
+
+router.GET("/user/:name/*action", func(c *gin.Context) {
+	name := c.Param("name")
+	action := c.Param("action")
+	message := name + " is " + action
+	c.String(http.StatusOK, message)
+})
+
+A request to /user/john/send/invoice matches this route with name equal to "john" and action equal to "/send/invoice", including the leading slash.
+
+Query String Parameters
+
+Query parameters (the part of a URL after a ?) are read with c.Query(), which optionally accepts a default value via c.DefaultQuery() if the parameter isn't present in the request:
+
+router.GET("/welcome", func(c *gin.Context) {
+	firstname := c.DefaultQuery("firstname", "Guest")
+	lastname := c.Query("lastname")
+	c.String(http.StatusOK, "Hello %s %s", firstname, lastname)
+})
+
+Reading the Request Body
+
+For POST, PUT, and PATCH requests carrying a body, Gin's binding methods (covered in more detail in Gin's JSON binding documentation) decode the body directly into a Go struct rather than requiring manual parsing:
+
+router.POST("/user", func(c *gin.Context) {
+	var json struct {
+		Name string `json:"name" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&json); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"name": json.Name})
+})
+
+Restful Resource Routing Convention
+
+A common convention when building RESTful APIs with Gin is to map the standard HTTP verbs onto CRUD operations for a given resource, all under a shared path:
+
+router.GET("/articles", listArticles)      // Read (collection)
+router.GET("/articles/:id", getArticle)    // Read (single)
+router.POST("/articles", createArticle)    // Create
+router.PUT("/articles/:id", updateArticle) // Replace
+router.PATCH("/articles/:id", patchArticle)// Partial update
+router.DELETE("/articles/:id", deleteArticle) // Delete
+
+This convention isn't enforced by Gin itself, but it's the idiomatic way most Gin-based APIs organize their routes, and pairs naturally with route Grouping to prefix an entire resource's routes under something like /api/v1/articles.
+
+Matching Any HTTP Method
+
+Gin also provides an Any() method for registering a single handler that responds to all standard HTTP verbs on a given path, useful for proxy-style routes or endpoints that intentionally don't care which verb was used:
+
+router.Any("/webhook", func(c *gin.Context) {
+	c.String(http.StatusOK, "received a %s request", c.Request.Method)
+})
+
+Because Any() matches every method on that exact path, it's generally reserved for cases where the handler itself branches on c.Request.Method, rather than as a substitute for registering separate GET/POST/PUT handlers on a typical RESTful resource.
+</content>
+
+
+Gin: Grouping Routes
+
+Source: https://gin-gonic.com/en/docs/examples/grouping-routes/
+
+Overview
+
+Route groups let you organize related endpoints under a shared path prefix and, just as importantly, attach middleware to that whole group instead of repeating it on every individual route. This mirrors how larger APIs are usually structured, with versioned prefixes like /v1 and /v2 each containing their own set of resource endpoints.
+
+Basic Grouping
+
+func main() {
+    router := gin.Default()
+
+    v1 := router.Group("/v1")
+    {
+        v1.POST("/login", loginEndpoint)
+        v1.POST("/submit", submitEndpoint)
+        v1.POST("/read", readEndpoint)
+    }
+
+    v2 := router.Group("/v2")
+    {
+        v2.POST("/login", loginEndpoint)
+        v2.POST("/submit", submitEndpoint)
+        v2.POST("/read", readEndpoint)
+    }
+
+    router.Run(":8080")
+}
+
+Calling router.Group("/v1") returns a new *gin.RouterGroup scoped to that prefix; registering POST("/login", ...) on it actually registers the route at /v1/login. The curly braces around each group's route registrations are purely a Go formatting convention to visually indicate the routes that belong to that group — they have no special meaning to the compiler, but they make nested groupings much easier to read at a glance.
+
+Nested Groups
+
+Groups can be nested arbitrarily deep, which is useful for expressing a resource hierarchy directly in the routing table:
+
+api := router.Group("/api")
+{
+    v1 := api.Group("/v1")
+    {
+        users := v1.Group("/users")
+        {
+            users.GET("/", listUsers)
+            users.GET("/:id", getUser)
+            users.POST("/", createUser)
+        }
+    }
+}
+
+This registers routes at /api/v1/users/, /api/v1/users/:id, and so on. Each nested Group call simply appends its prefix argument onto the parent group's already-accumulated prefix.
+
+Attaching Middleware to a Group
+
+Middleware attached with Use on a group only runs for routes registered on that group (and its descendants), not for the whole router:
+
+authorized := router.Group("/admin")
+authorized.Use(AuthRequired())
+{
+    authorized.POST("/status", statusEndpoint)
+    authorized.POST("/delete", deleteEndpoint)
+}
+
+This is one of the most common reasons to reach for groups in the first place: it lets you keep a public set of routes and a protected set of routes side by side in the same router, without having to remember to attach an auth middleware individually to every protected handler.
+
+Groups Can Be Passed Around
+
+Because router.Group returns a *gin.RouterGroup, you can pass it into a setup function defined elsewhere in your codebase, which is a common pattern for splitting route registration across multiple files as an application grows:
+
+func registerUserRoutes(rg *gin.RouterGroup) {
+    rg.GET("/", listUsers)
+    rg.GET("/:id", getUser)
+}
+
+func main() {
+    router := gin.Default()
+    api := router.Group("/api/v1")
+    registerUserRoutes(api.Group("/users"))
+    router.Run(":8080")
+}
+
+This keeps main() focused on top-level wiring while delegating the details of each resource's routes to dedicated functions or even dedicated files, which scales much better than one giant list of route registrations as the number of endpoints grows.
+
+
+Using Middleware in Gin Web Framework
+
+Source: https://gin-gonic.com/en/docs/middleware/using-middleware/
+
+Overview
+
+Middleware functions execute before and after route handlers, handling cross-cutting concerns like logging, authentication, and error recovery.
+
+Three Levels of Middleware Attachment
+
+Global Middleware
+Applied universally across all routes using `router.Use()`. Ideal for concerns affecting the entire application, such as logging and panic recovery.
+
+Group Middleware
+Applied to routes within a specific group via `group.Use()`. Useful for applying authentication to subsets of routes, like all `/admin/*` endpoints.
+
+Per-Route Middleware
+Attached to individual routes as additional arguments to methods like `router.GET()` or `router.POST()`. Enables route-specific logic such as custom rate limiting.
+
+Execution Order
+
+Middleware executes in registration order. When a middleware invokes `c.Next()`, control passes to the next middleware or handler, then resumes after `c.Next()` returns. This creates a stack pattern where the first registered middleware starts first but finishes last. Calling `c.Abort()` skips subsequent middleware and handlers.
+
+Code Example
+
+```go
+package main
+
+import (
+	"github.com/gin-gonic/gin"
+)
+
+func main() {
+	router := gin.New()
+
+	// Global middleware
+	router.Use(gin.Logger())
+	router.Use(gin.Recovery())
+
+	// Per-route middleware
+	router.GET("/benchmark", MyBenchLogger(), benchEndpoint)
+
+	// Group middleware
+	authorized := router.Group("/")
+	authorized.Use(AuthRequired())
+	{
+		authorized.POST("/login", loginEndpoint)
+		authorized.POST("/submit", submitEndpoint)
+
+		// Nested group
+		testing := authorized.Group("testing")
+		testing.GET("/analytics", analyticsEndpoint)
+	}
+
+	router.Run(":8080")
+}
+```
+
+Key Note
+
+`gin.Default()` conveniently includes Logger and Recovery middleware. For a bare router, use `gin.New()` and add only needed middleware.
+
+Built-in Middleware
+
+Gin ships two commonly used middleware functions out of the box: `gin.Logger()`, which writes a structured log line for every incoming request including its method, path, status code, and latency; and `gin.Recovery()`, which recovers from any panic that occurs while processing a request and returns a 500 response instead of crashing the whole server process. `gin.Default()` is simply shorthand for creating a router with both of these already attached, whereas `gin.New()` returns a completely bare router with no middleware at all, useful when you want full control over exactly what runs on every request.
+
+Third-Party Middleware
+
+Beyond Gin's own built-ins, the wider ecosystem provides middleware for common cross-cutting concerns, typically distributed as separate Go modules that implement the `gin.HandlerFunc` signature so they plug into `Use()` exactly like custom middleware. Common examples include CORS handling, structured JSON logging, rate limiting, JWT authentication, and OpenTelemetry tracing. Because they all conform to the same `func(*gin.Context)` signature, mixing first-party, third-party, and hand-written middleware in the same router requires no special integration work.
+
+Conditionally Skipping Middleware
+
+Sometimes a middleware registered globally should not run for every single route — for example, a request-logging middleware might want to skip health-check endpoints to avoid flooding logs. Since middleware is just a function, this is usually handled with an early return inside the middleware itself, checking the request path or method before deciding whether to perform its main logic:
+
+```go
+func SkipHealthCheckLogger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.URL.Path == "/healthz" {
+			c.Next()
+			return
+		}
+		start := time.Now()
+		c.Next()
+		log.Printf("%s %s %v", c.Request.Method, c.Request.URL.Path, time.Since(start))
+	}
+}
+```
+
+Aborting Mid-Chain
+
+Calling `c.Abort()` prevents Gin from calling any pending handlers that come after the current one in the chain — those handlers will simply not execute — but it does not stop the currently executing function; execution continues normally after the `c.Abort()` call in that same function. This is why authentication middleware typically pairs `c.Abort()` (or one of its variants like `c.AbortWithStatus()` or `c.AbortWithStatusJSON()`) with an explicit `return` statement immediately afterward, to also stop the current function from continuing to run its own remaining logic after issuing the abort.
+</content>
+
+
+Custom Middleware in Gin
+
+Source: https://gin-gonic.com/en/docs/middleware/custom-middleware/
+
+Overview
+
+Gin middleware consists of functions returning `gin.HandlerFunc`. Middleware runs before and/or after the main handler, which makes it useful for logging, authentication, error handling, and other cross-cutting concerns.
+
+Middleware Execution Flow
+
+A middleware function operates in distinct phases separated by `c.Next()`:
+
+Before `c.Next()` — Executes prior to the main handler. Suitable for setup operations like timing requests, validating tokens, or storing context values via `c.Set()`.
+
+`c.Next()` — Invokes the subsequent handler in the chain. The middleware pauses at this point until all downstream handlers finish.
+
+After `c.Next()` — Runs following handler completion. Appropriate for cleanup, response logging, or latency measurement.
+
+To terminate the middleware chain entirely (e.g., authentication failure), use `c.Abort()` instead of `c.Next()`. This blocks remaining handlers from executing. You can pair this with a response: `c.AbortWithStatusJSON(401, gin.H{"error": "unauthorized"})`.
+
+Code Example
+
+```go
+package main
+
+import (
+	"log"
+	"time"
+
+	"github.com/gin-gonic/gin"
+)
+
+func Logger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		t := time.Now()
+
+		// Set example variable
+		c.Set("example", "12345")
+
+		// before request
+		c.Next()
+
+		// after request
+		latency := time.Since(t)
+		log.Print(latency)
+
+		// access the status we are sending
+		status := c.Writer.Status()
+		log.Println(status)
+	}
+}
+
+func main() {
+	r := gin.New()
+	r.Use(Logger())
+
+	r.GET("/test", func(c *gin.Context) {
+		example := c.MustGet("example").(string)
+
+		// it would print: "12345"
+		log.Println(example)
+	})
+
+	// Listen and serve on 0.0.0.0:8080
+	r.Run(":8080")
+}
+```
+
+Passing Data Between Middleware and Handlers
+
+The c.Set() and c.Get() (or c.MustGet()) pair is the standard mechanism for sharing values computed in middleware with downstream handlers. Values are stored on the gin.Context for the lifetime of that single request, and are not shared across requests. This is commonly used to attach an authenticated user, a request ID, or a parsed token's claims to the context so every downstream handler in the chain can access it without recomputing it:
+
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := c.GetHeader("Authorization")
+		user, err := validateToken(token)
+		if err != nil {
+			c.AbortWithStatusJSON(401, gin.H{"error": "invalid token"})
+			return
+		}
+		c.Set("user", user)
+		c.Next()
+	}
+}
+
+func ProfileHandler(c *gin.Context) {
+	user := c.MustGet("user").(*User)
+	c.JSON(200, user)
+}
+
+Because MustGet panics if the key was never set, it should only be used in handlers that are guaranteed to run after the middleware that sets the value — typically enforced by registering both on the same route or group.
+
+Writing Middleware That Modifies the Request
+
+Middleware can also modify the incoming request before passing control onward, such as rewriting a header or injecting a value into the request context that downstream framework-agnostic code (not aware of Gin specifically) can read via context.Context:
+
+func RequestIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		requestID := c.GetHeader("X-Request-ID")
+		if requestID == "" {
+			requestID = uuid.New().String()
+		}
+		ctx := context.WithValue(c.Request.Context(), "requestID", requestID)
+		c.Request = c.Request.WithContext(ctx)
+		c.Writer.Header().Set("X-Request-ID", requestID)
+		c.Next()
+	}
+}
+
+Recovering From Panics in Custom Middleware
+
+While Gin ships a built-in gin.Recovery() middleware, you can also write a custom recovery middleware to add extra behavior, such as logging the panic to an external error-tracking service before responding to the client:
+
+func CustomRecovery() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("panic recovered: %v", err)
+				c.AbortWithStatusJSON(500, gin.H{"error": "internal server error"})
+			}
+		}()
+		c.Next()
+	}
+}
+
+The defer combined with recover() inside the deferred function is the standard Go pattern for catching a panic; without it, a panic anywhere downstream in the middleware chain would crash the whole Gin process rather than being converted into a normal 500 response.
+</content>
+
+
+Gin: Configuration, Modes, and Deployment Settings
+
+Source: general Gin configuration reference
+
+Run Modes
+
+Gin supports three modes controlling how much diagnostic output it produces: debug (the default, verbose console output including a startup banner and route registration list), release (minimal output, suitable for production), and test (used internally by Gin's own test helpers). Set the mode before creating any engine instance:
+
+gin.SetMode(gin.ReleaseMode)
+router := gin.Default()
+
+Alternatively, set it via the GIN_MODE environment variable, which many deployments prefer since it avoids needing a code change between environments:
+
+export GIN_MODE=release
+
+Running debug mode in production is generally discouraged both because of the performance overhead of the extra logging and because debug mode's console output can leak information about your route structure that's unnecessary to expose in a production environment's logs.
+
+gin.Default() vs gin.New()
+
+gin.Default() returns an engine with the Logger and Recovery middleware already attached, which is convenient for getting started quickly. gin.New() returns a completely bare engine with no middleware, giving you full control to attach exactly the middleware you want, in exactly the order you want it, which many production applications prefer over the implicit defaults bundled into gin.Default().
+
+router := gin.New()
+router.Use(gin.Recovery())
+router.Use(myCustomLogger())
+
+Configuring the Underlying HTTP Server
+
+Because Gin's Engine implements the standard http.Handler interface, you can construct your own http.Server with custom timeouts and pass the Gin engine in as its handler, rather than relying on router.Run's defaults:
+
+srv := &http.Server{
+    Addr:         ":8080",
+    Handler:      router,
+    ReadTimeout:  5 * time.Second,
+    WriteTimeout: 10 * time.Second,
+    IdleTimeout:  120 * time.Second,
+}
+srv.ListenAndServe()
+
+This is the standard way to set explicit timeouts on a Gin-based server, since router.Run() alone does not expose these settings directly.
+
+Graceful Shutdown
+
+Combining the custom http.Server approach with signal handling lets a Gin application shut down gracefully, finishing in-flight requests before exiting rather than dropping them abruptly:
+
+quit := make(chan os.Signal, 1)
+signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+<-quit
+
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+if err := srv.Shutdown(ctx); err != nil {
+    log.Fatal("Server forced to shutdown:", err)
+}
+
+Trusted Proxies
+
+When a Gin application sits behind a reverse proxy or load balancer, c.ClientIP() needs to know which upstream proxies are trusted, so it can correctly extract the real client IP from headers like X-Forwarded-For rather than trusting an arbitrary client-supplied header value at face value:
+
+router.SetTrustedProxies([]string{"10.0.0.0/8", "172.16.0.0/12"})
+
+Leaving trusted proxies unconfigured (or, worse, trusting all proxies) can allow a malicious client to spoof its own IP address in rate limiting, logging, or IP-based access control logic, simply by setting the X-Forwarded-For header itself on a request that never actually passed through a legitimate proxy.
+
+Multipart Form Memory Limit
+
+Gin's default in-memory limit for multipart form parsing (used when handling file uploads) can be adjusted via MaxMultipartMemory, controlling how much of an uploaded file's data buffers in memory before spilling over to a temporary file on disk:
+
+router.MaxMultipartMemory = 8 << 20 // 8 MiB

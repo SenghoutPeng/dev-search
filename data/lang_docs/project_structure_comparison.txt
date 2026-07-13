@@ -1,0 +1,100 @@
+Project Structure Comparison - Gin, Laravel, and Spring Boot
+
+Introduction
+
+How a project's files and folders are organized says a lot about a framework's underlying philosophy. Gin imposes essentially no structure at all, leaving every organizational decision to the developer. Laravel enforces a specific, opinionated directory layout that every Laravel application shares. Spring Boot follows the conventional Maven/Gradle layout inherited from the broader Java ecosystem, with its own conventions about where source, resources, and tests live. Comparing the three side by side shows a spectrum from "structure is entirely your call" to "structure is almost entirely decided for you."
+
+Gin: Unopinionated, Developer-Chosen Structure
+
+Gin ships no project generator and no scaffolding tool — a new Gin project starts from `go mod init myapp` and a single `main.go` file that a developer writes by hand. Because Gin (and Go generally) has no built-in notion of "where controllers go" or "where models go," the resulting layout is whatever the team decides, though a handful of community conventions have become common enough to be considered semi-standard:
+
+```
+myapp/
+  cmd/
+    myapp/
+      main.go              # entry point, wires everything together
+  internal/
+    handlers/               # HTTP handler functions
+    middleware/              # custom middleware
+    models/                  # GORM structs or plain data types
+    repository/              # data access layer, if separated from models
+  pkg/
+    someexportedlib/         # code intended to be importable by other modules
+  go.mod
+  go.sum
+```
+
+The `cmd/` directory (holding one subdirectory per compiled binary the module produces) and `internal/` (a Go-compiler-enforced convention: packages under `internal/` cannot be imported by any module outside the current one) are the two structural conventions with actual language-level meaning; everything else — whether handlers live in one flat package or one package per resource, whether there's a separate `repository` layer between handlers and the database, whether route registration lives in `main.go` or is split into a `routes` package — is a project-specific decision. A small Gin service might keep everything in a single `main.go`; a larger one typically splits handler functions, middleware, and data models into separate packages under `internal/`, often mirroring the route groups established with `router.Group(...)` (a `users` package for everything under `/api/v1/users`, an `orders` package for everything under `/api/v1/orders`, and so on). Because nothing in Gin itself enforces or even suggests this layout, two Gin codebases written by different teams can look substantially different from each other while both being idiomatic Go.
+
+Laravel: An Enforced, Specific Structure
+
+Laravel's `composer create-project laravel/laravel myapp` command generates a complete, fixed directory structure that every Laravel application shares, and deviating from it requires actively fighting the framework's conventions rather than simply choosing a different layout:
+
+```
+myapp/
+  app/
+    Http/
+      Controllers/         # request-handling classes
+      Middleware/           # custom middleware classes
+      Requests/              # Form Request validation classes
+    Models/                  # Eloquent models
+    Providers/               # service providers, including AppServiceProvider
+    Policies/                # authorization policy classes
+  routes/
+    web.php                  # routes with session/CSRF (the "web" middleware group)
+    api.php                  # stateless routes (the "api" middleware group)
+  resources/
+    views/                    # Blade templates
+  database/
+    migrations/               # timestamped schema-change files
+    factories/                 # model factories for testing/seeding
+    seeders/
+  bootstrap/
+    app.php                    # middleware registration, route file wiring
+  config/
+    auth.php, database.php, ...
+  tests/
+    Feature/
+    Unit/
+```
+
+Every one of these directories has a specific, framework-enforced meaning: `routes/web.php` is automatically loaded and automatically assigned the `web` middleware group; a class in `app/Models` extending `Model` is automatically discovered as an Eloquent model, and a same-named `UserPolicy` for a `User` model is automatically discovered as its authorization policy with no manual registration required; `database/migrations` files are automatically ordered by the timestamp embedded in their filename and run in that order by `php artisan migrate`. Artisan's `make:` commands generate new files directly into their conventional locations (`php artisan make:controller UserController` creates `app/Http/Controllers/UserController.php`), which both reflects and reinforces the fixed structure — there is essentially one place any given kind of file is expected to live, and every Laravel developer who has worked on a different Laravel project can navigate a new one immediately because the layout is already familiar.
+
+Spring Boot: Conventional Maven/Gradle Layout
+
+A Spring Boot project generated from start.spring.io follows the standard Maven or Gradle source layout inherited from decades of Java tooling convention, with Spring Boot's own configuration file placed in a specific conventional location:
+
+```
+myapp/
+  src/
+    main/
+      java/
+        com/example/myapp/
+          MyappApplication.java       # @SpringBootApplication entry point
+          controller/                  # @RestController classes
+          service/                      # @Service classes, business logic
+          repository/                    # Spring Data JPA repository interfaces
+          model/ (or domain/, entity/)    # @Entity classes
+          config/                          # @Configuration classes
+      resources/
+        application.properties           # or application.yaml
+        application-dev.properties         # profile-specific overrides
+    test/
+      java/
+        com/example/myapp/                 # test classes mirroring main's package structure
+  pom.xml                                     # or build.gradle
+```
+
+The `src/main/java` vs `src/test/java` split, with both mirroring the same package structure, is a Maven/Gradle-level convention that predates Spring entirely and applies to essentially every Java project, not just Spring Boot ones. Within `src/main/java`, Spring Boot projects commonly organize by layer (a `controller` package, a `service` package, a `repository` package, each containing classes for every feature in the application) or by feature (a `users` package containing that feature's controller, service, and repository together, and a separate `orders` package doing the same for orders) — Spring itself does not mandate either choice, unlike Laravel's single fixed layout, though package-by-layer remains the more commonly seen default in generated tutorials and smaller projects, with package-by-feature becoming more common as a codebase grows and teams want each feature's related classes physically near each other. `application.properties`/`application.yaml` in `src/main/resources` is the one file location Spring Boot does treat as load-bearing convention: it's automatically discovered and loaded into the application's `Environment` at startup, with profile-specific variants (`application-{profile}.properties`) automatically layered on top based on the active Spring profile.
+
+Comparing the Three
+
+Gin sits at one extreme: nothing about file layout is enforced beyond Go's own `internal/` visibility rule, and even the choice between package-by-layer and package-by-feature is left entirely to the team, mirroring the same freedom (and same burden) Gin gives developers over authentication, ORM choice, and validation. Laravel sits at the opposite extreme: the framework actively discovers models, policies, and routes based on their location and naming, meaning the directory structure is not just a human convention but part of the framework's own runtime behavior — moving a model out of `app/Models` or naming a policy incorrectly can silently break automatic discovery. Spring Boot sits in between: the Maven/Gradle-level layout (`src/main/java`, `src/test/java`, `src/main/resources`) is effectively mandatory tooling convention enforced by the build system itself, while the finer-grained organization within `src/main/java` (by layer or by feature) is left to the team's judgment, much like Gin's freedom over its `internal/` subpackages, but bounded within a much more rigid outer skeleton than Gin provides.
+
+Why This Matters for New Contributors
+
+The practical consequence of these differing philosophies shows up most clearly when a new developer joins an existing project. A developer already familiar with Laravel conventions can predict almost exactly where to find a given piece of logic in an unfamiliar Laravel codebase, since the framework's discovery conventions leave little room for a team to deviate without extra effort. A developer joining an unfamiliar Gin codebase has no such guarantee and must first understand that specific team's chosen conventions, since two idiomatic Gin projects can organize handlers, models, and middleware in entirely different ways. A developer joining a Spring Boot codebase can rely on the outer Maven/Gradle skeleton being predictable, but still needs to learn whether that particular team organizes by layer or by feature within `src/main/java`, a smaller but still real onboarding cost compared to Laravel's fully fixed layout.
+
+Summary
+
+Project structure is itself a design choice each framework makes on the spectrum between developer freedom and enforced convention. Gin trusts developers to invent their own structure and enforces almost nothing. Laravel bakes directory location into the framework's own runtime discovery mechanisms, making structure non-optional in practice. Spring Boot inherits a rigid outer skeleton from the Java build-tool ecosystem while leaving the finer-grained internal organization to the team, landing squarely between Gin's total freedom and Laravel's total convention.

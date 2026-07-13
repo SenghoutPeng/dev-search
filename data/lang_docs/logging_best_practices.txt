@@ -1,0 +1,337 @@
+Logging - Best Practices and Structured Logging
+
+Introduction
+
+Logging is the process of recording events that happen in your application. Logs help you understand application behavior, debug issues, track user actions, and monitor system health. Good logging is essential for production applications where you can't run a debugger.
+
+Effective logging provides the right information at the right time without slowing down your application or filling disk space.
+
+Logging Levels
+
+Logging levels categorize events by severity, allowing you to control which messages are recorded and displayed.
+
+DEBUG: Detailed information for developers. Disabled in production.
+
+```
+DEBUG: User object created {id: 123, name: 'John', email: 'john@example.com'}
+DEBUG: Database query executed in 45ms
+DEBUG: Cache hit for key 'user:123'
+```
+
+INFO: Significant events. Always recorded. Useful for tracking application flow.
+
+```
+INFO: User logged in {user_id: 123, ip: '192.168.1.1'}
+INFO: Order created {order_id: 456, user_id: 123, total: 99.99}
+INFO: Scheduled job started {job_name: 'daily_report', duration: 5s}
+```
+
+WARN: Unexpected situations. Application continues but something may need attention.
+
+```
+WARN: Database response time exceeded threshold {duration: 500ms, threshold: 200ms}
+WARN: Cache miss for frequently accessed key {key: 'user:123'}
+WARN: Retry attempt 2 of 3 for failed request
+```
+
+ERROR: Serious problems. Something failed but application continues.
+
+```
+ERROR: Failed to send email {user_id: 123, error: 'SMTP timeout'}
+ERROR: Database connection lost {host: 'db.example.com'}
+ERROR: Payment processing failed {order_id: 456, reason: 'Insufficient funds'}
+```
+
+FATAL/CRITICAL: Critical errors. Application may halt or behavior is undefined.
+
+```
+FATAL: Out of memory error
+FATAL: Configuration file missing or corrupted
+FATAL: Database corruption detected
+```
+
+What to Log
+
+User Actions: Track significant user activities for auditing.
+
+```
+INFO: User login {user_id: 123, timestamp: '2025-07-13T10:30:00Z', ip: '192.168.1.1'}
+INFO: User changed password {user_id: 123, timestamp: '2025-07-13T10:35:00Z'}
+INFO: Admin deleted user {admin_id: 1, deleted_user_id: 456}
+```
+
+Business Events: Track important business operations.
+
+```
+INFO: Order placed {order_id: 789, user_id: 123, total: 99.99}
+INFO: Payment processed {order_id: 789, amount: 99.99, status: 'success'}
+INFO: Shipment created {order_id: 789, tracking_number: 'UPS123'}
+```
+
+Errors and Exceptions: Record all errors with context.
+
+```
+ERROR: API call failed {endpoint: '/api/users', method: 'GET', status: 500, response_time: 1200ms}
+ERROR: Email sending failed {recipient: 'user@example.com', error: 'SMTP connection timeout'}
+```
+
+Performance Metrics: Track slow operations.
+
+```
+WARN: Slow database query {query: 'SELECT * FROM orders', duration: 2500ms, threshold: 1000ms}
+WARN: Slow API call {endpoint: '/api/data', duration: 3000ms}
+```
+
+System Events: Monitor system health.
+
+```
+INFO: Server started {version: '2.1.0', port: 8080, environment: 'production'}
+INFO: Cache cleared {size_before: 1024MB, size_after: 0}
+WARN: Disk usage exceeded 80% {used: 800GB, total: 1000GB}
+```
+
+What NOT to Log
+
+Passwords and sensitive data:
+```
+DON'T: DEBUG: User logged in with password 'secretpass123'
+DO: INFO: User logged in {user_id: 123}
+```
+
+Large data dumps:
+```
+DON'T: DEBUG: Full user object {id: 1, name: 'John', ..., 500 more fields}
+DO: DEBUG: User object created {id: 123, name_length: 4, fields: 5}
+```
+
+Personally Identifiable Information (PII) without purpose:
+```
+DON'T: DEBUG: Processing payment for John Smith, SSN 123-45-6789
+DO: INFO: Payment processed {user_id: 123, amount: 100}
+```
+
+Excessive verbosity:
+```
+DON'T: DEBUG: Loop iteration 1, DEBUG: Loop iteration 2, DEBUG: Loop iteration 3...
+DO: DEBUG: Processing 1000 items completed
+```
+
+Structured Logging
+
+Structured logging uses key-value pairs instead of plain text messages. This enables searching, filtering, and analysis.
+
+Unstructured logging (traditional):
+```
+2025-07-13 10:30:45 User login from 192.168.1.1
+2025-07-13 10:31:02 User logout
+```
+
+Structured logging (JSON):
+```json
+{
+  "timestamp": "2025-07-13T10:30:45Z",
+  "level": "INFO",
+  "message": "User login",
+  "user_id": 123,
+  "ip_address": "192.168.1.1",
+  "country": "US"
+}
+
+{
+  "timestamp": "2025-07-13T10:31:02Z",
+  "level": "INFO",
+  "message": "User logout",
+  "user_id": 123,
+  "session_duration": 600
+}
+```
+
+Structured logging benefits:
+- Searchable: Search all logs where error contains "timeout"
+- Filterable: Show all logs for user_id 123
+- Analyzable: Calculate average session_duration
+- Machine-readable: Easier for monitoring tools
+
+Implementing Structured Logging
+
+Python:
+```python
+import json
+import logging
+
+# Configure JSON logging
+logger = logging.getLogger(__name__)
+
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+# Log with structured data
+logger.info(json.dumps({
+  'message': 'User login',
+  'user_id': 123,
+  'ip': '192.168.1.1',
+  'timestamp': '2025-07-13T10:30:00Z'
+}))
+```
+
+JavaScript/Node.js:
+```javascript
+const logger = {
+  info: (message, data) => {
+    console.log(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'INFO',
+      message,
+      ...data
+    }));
+  },
+  error: (message, error, data) => {
+    console.error(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'ERROR',
+      message,
+      error: error.message,
+      ...data
+    }));
+  }
+};
+
+logger.info('User login', {user_id: 123, ip: '192.168.1.1'});
+logger.error('Payment failed', new Error('Insufficient funds'), {order_id: 456});
+```
+
+Go:
+```go
+import (
+  "encoding/json"
+  "log"
+  "os"
+)
+
+func logEvent(level string, message string, data map[string]interface{}) {
+  entry := map[string]interface{}{
+    "timestamp": time.Now().UTC(),
+    "level":     level,
+    "message":   message,
+  }
+  for k, v := range data {
+    entry[k] = v
+  }
+
+  bytes, _ := json.Marshal(entry)
+  log.Println(string(bytes))
+}
+
+logEvent("INFO", "User login", map[string]interface{}{
+  "user_id": 123,
+  "ip":      "192.168.1.1",
+})
+```
+
+Context and Correlation
+
+Include context information to trace requests through your system.
+
+Request ID: Unique ID for each request. All logs for that request include this ID.
+
+```
+INFO: Request started {request_id: 'abc123', method: 'POST', path: '/api/orders'}
+INFO: Database query executed {request_id: 'abc123', duration: 45ms}
+INFO: Response sent {request_id: 'abc123', status: 201}
+```
+
+User ID: Which user triggered the action.
+
+```
+INFO: User login {user_id: 123, request_id: 'abc123'}
+INFO: Order created {user_id: 123, order_id: 456, request_id: 'abc123'}
+```
+
+Session ID: Group logs from the same session.
+
+```
+INFO: Session created {session_id: 'xyz789', user_id: 123}
+INFO: Page viewed {session_id: 'xyz789', page: '/products'}
+INFO: Item added to cart {session_id: 'xyz789', product_id: 456}
+```
+
+Performance Considerations
+
+Logging has overhead. Too much logging slows your application.
+
+Asynchronous logging: Write logs asynchronously to avoid blocking the main thread.
+
+```javascript
+// Slow: blocks execution
+fs.writeFileSync('app.log', logMessage);
+
+// Fast: async logging
+queue.push(logMessage);  // Add to queue
+backgroundWorker.write(queue);  // Write in background
+```
+
+Sampling: Log only a percentage of events for high-volume scenarios.
+
+```javascript
+function log(level, message, data) {
+  if (level === 'DEBUG' && Math.random() > 0.1) {
+    return;  // Log only 10% of DEBUG messages
+  }
+  logger.write({level, message, ...data});
+}
+```
+
+Levels in different environments:
+
+Development: DEBUG level to understand code flow
+Staging: INFO level to catch issues before production
+Production: WARN and ERROR only to reduce disk/CPU usage
+
+Log Rotation
+
+Manage log file size by rotating logs:
+
+Daily rotation: Create new log file each day
+Size rotation: Create new log when log exceeds size limit
+Compression: Compress old logs to save space
+Retention: Delete logs older than N days
+
+Configuration example:
+```
+max-log-size: 100MB
+max-log-age: 30 days
+max-logs-to-keep: 10
+compress-old-logs: true
+```
+
+Logging Best Practices
+
+Use appropriate levels: DEBUG for development details, INFO for business events, WARN for concerning situations, ERROR for failures
+Include context: User ID, request ID, session ID, timestamps
+Use structured logging: JSON format for searchability
+Log at boundaries: API calls, database operations, external services
+Avoid logging sensitive data: Never log passwords or PII
+Write actionable messages: Help future developers understand what happened
+Include errors completely: Log error message and stack trace
+Test logging: Verify important events are logged
+Monitor logs: Set up alerts for ERROR and CRITICAL logs
+Keep logs accessible: Store where they can be searched and analyzed
+
+Common Logging Mistakes
+
+Logging too much: Creates noise, hard to find important events
+Logging too little: Can't debug production issues
+Unstructured logging: Can't search or filter logs
+No context: Don't know which user/request caused the issue
+Synchronous logging: Slows down application
+Logging sensitive data: Security risk
+Generic messages: Don't provide enough information
+No alerts: Errors occur but nobody knows
+Logging in wrong place: Critical code paths not logged
+Not rotating logs: Disk fills up
+
+Logging infrastructure: Tools like ELK Stack (Elasticsearch, Logstash, Kibana), Splunk, or Datadog help manage logs at scale. These tools provide search, visualization, and alerting.
+
+Good logging is crucial for understanding production behavior, debugging issues, and maintaining system health. Invest in proper logging infrastructure and practices.

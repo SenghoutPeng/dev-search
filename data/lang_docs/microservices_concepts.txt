@@ -1,0 +1,96 @@
+Microservices Concepts - Service Decomposition and Distributed Communication
+
+Introduction
+
+Microservices architecture structures an application as a collection of small, independently deployable services, each built around a specific business capability, communicating with each other over a network rather than through in-process function calls. This is a significant departure from a monolithic architecture, where all of an application's functionality lives in a single deployable unit sharing one process, one codebase, and typically one database.
+
+Service Decomposition
+
+The central design question in microservices is how to split a system into services, and the most common guiding principle is decomposing by business capability rather than by technical layer. Instead of a single application with a shared "users" table, a "products" table, and an "orders" table all accessed by one monolithic codebase, a microservices decomposition might produce a User Service, a Product Service, and an Order Service, each owning its own data and exposing its own API, with no other service allowed to reach directly into its database.
+
+This is often summarized as "decompose by business capability, not by technical layer" — a poor decomposition splits services into a "database service," a "business logic service," and a "presentation service" (which is really just a distributed version of the layered architecture, with network calls replacing function calls and all the added latency and failure modes that implies). A good decomposition instead identifies cohesive business domains — billing, inventory, notifications, user accounts — and gives each one its own service boundary, aligned with how the business itself is organized.
+
+Each service in a well-decomposed system owns its own data exclusively. Other services cannot query that data directly from its database; they must go through the owning service's API. This is what allows services to evolve independently: the User Service can change its internal database schema freely, as long as its external API contract stays the same, because no other service depends on its internal storage details.
+
+Communication Between Services
+
+Because services no longer share a process, they must communicate over the network, and there are a few common patterns for this.
+
+REST over HTTP
+
+The most common approach, especially for synchronous request/response interactions, is a REST API exposed by each service, called by other services (or by an API gateway) using ordinary HTTP requests:
+
+```
+GET /api/orders/42
+Host: order-service.internal
+
+Response:
+{ "id": 42, "userId": 7, "total": 59.99, "status": "shipped" }
+```
+
+If the Order Service needs to display the customer's name alongside an order, it might call the User Service's REST API directly:
+
+```
+GET /api/users/7
+Host: user-service.internal
+```
+
+REST is simple, widely understood, and easy to debug with common tools (curl, browser dev tools), but each call carries the overhead of an HTTP request/response cycle, including connection setup, header parsing, and typically JSON serialization.
+
+gRPC
+
+gRPC is a remote procedure call framework built on HTTP/2 and Protocol Buffers, a compact binary serialization format. Instead of hand-writing REST endpoints and JSON schemas, a service defines its API in a .proto file, and gRPC generates client and server code in multiple languages from that single definition:
+
+```protobuf
+service OrderService {
+  rpc GetOrder(GetOrderRequest) returns (Order);
+}
+
+message GetOrderRequest {
+  string order_id = 1;
+}
+
+message Order {
+  string id = 1;
+  string user_id = 2;
+  double total = 3;
+}
+```
+
+gRPC's binary format and HTTP/2 transport are typically faster and use less bandwidth than a JSON-over-HTTP/1.1 REST call, and generated client code eliminates a class of manual serialization bugs. The tradeoff is that gRPC is less human-readable on the wire, requires all participating services to share compiled .proto definitions, and is less naturally suited to being called directly from a web browser than a plain REST endpoint is.
+
+Asynchronous Messaging
+
+For interactions that don't need an immediate response, services can communicate through a message broker (such as RabbitMQ or Kafka) instead of calling each other directly. A service publishes an event — "OrderPlaced," for instance — to a queue or topic, and any number of other services that care about that event can subscribe and react to it independently, without the publishing service needing to know who's listening or waiting for them to respond:
+
+```
+Order Service publishes: OrderPlaced { orderId: 42, userId: 7, total: 59.99 }
+
+Inventory Service subscribes: decrements stock for the ordered items
+Notification Service subscribes: sends a confirmation email
+Analytics Service subscribes: records the event for reporting
+```
+
+This decouples services in time as well as in code: the Order Service doesn't block waiting for the Notification Service to actually send an email, and if the Notification Service is temporarily down, messages typically queue up and get processed once it recovers, rather than the order failing outright. The tradeoff is added complexity: eventual consistency (other services see the effect of an event slightly after it happened, not instantly), and a need to reason carefully about message ordering, duplicate delivery, and failure handling.
+
+Independent Deployment
+
+A defining property of microservices is that each service can be built, tested, and deployed independently of the others. Deploying a new version of the Order Service should not require redeploying the User Service or the Product Service, as long as the Order Service's API contract with those other services hasn't changed in a breaking way. This independence is what allows different teams to own different services, release on their own schedules, and even choose different technology stacks per service, since nothing requires every service to be written in the same language or use the same database engine.
+
+This independence does come with a real obligation: services must maintain backward-compatible APIs (or use explicit versioning) so that other services depending on them aren't broken by an independent deployment they weren't even aware of.
+
+Microservices vs Monolith: Tradeoffs
+
+A monolith is simpler to develop early on: one codebase, one deployment, no network calls between components, and straightforward transactions across all data (since it typically lives in one database). Debugging is generally easier too, since a request's entire lifecycle can usually be traced within a single process using ordinary debugging tools, without needing distributed tracing across service boundaries.
+
+Microservices offer independent scaling (scale just the Order Service during a sales rush, without scaling every other service alongside it), independent deployment (ship a fix to one service without redeploying the whole system), and technology flexibility (a team can pick the best tool for their specific service). These benefits come at real cost: network calls between services are slower and less reliable than in-process function calls, distributed transactions spanning multiple services' databases are considerably harder to reason about than a single database transaction, and operating many independently deployed services (monitoring, logging, tracing, deployment pipelines) requires substantially more infrastructure and operational maturity than running one monolith.
+
+A commonly cited rule of thumb is that microservices tend to pay off at a certain organizational and system scale — many teams, many independently evolving business domains, a genuine need for independent scaling of specific components — and can be a net cost for a small team or an early-stage product, where the simplicity of a monolith usually outweighs microservices' theoretical benefits. Many successful systems intentionally start as a well-structured monolith (with clean internal boundaries between business domains) and only split specific pieces out into separate services once a concrete, demonstrated need arises.
+
+Common Microservices Patterns
+
+API Gateway: a single entry point that routes external client requests to the appropriate internal service, often also handling cross-cutting concerns like authentication, rate limiting, and request logging in one place rather than duplicating that logic in every service.
+
+Service Discovery: since services in a dynamic, scaled environment don't have fixed, predictable network addresses, a service discovery mechanism (such as a registry that services register themselves with on startup) lets one service find the current network location of another at runtime.
+
+Circuit Breaker: a pattern where a service temporarily stops calling another service that's failing repeatedly, to avoid piling up requests against a service that's already struggling, giving it room to recover instead of amplifying the failure across the whole system.

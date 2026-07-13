@@ -1,0 +1,234 @@
+Docker: What is a Container?
+
+Definition
+
+A container is an isolated process that packages an application with all its necessary dependencies, enabling it to run consistently across different environments — from a developer's machine to production servers.
+
+The Problem They Solve
+
+Consider a web application with a React frontend, Python API, and PostgreSQL database. Without containers, each developer must install matching versions of Node, Python, and PostgreSQL. This creates synchronization challenges across team members, CI/CD systems, and production environments. Containers eliminate this friction by standardizing the runtime environment.
+
+Key Characteristics
+
+Containers are:
+- Self-contained: each container has everything it needs to function with no reliance on any pre-installed dependencies on the host machine.
+- Isolated: since containers run in isolation, they have minimal influence on the host and other containers, increasing the security of your applications.
+- Independent: each container can be managed separately without affecting others.
+- Portable: a container running locally behaves identically in data centers or cloud environments.
+
+Containers vs. Virtual Machines
+
+Virtual machines require entire operating systems with kernels and hardware drivers — significant overhead for isolating single applications. Containers are lightweight processes that share the same kernel, allowing multiple applications to run on less infrastructure. Often, these technologies work together: cloud VMs host container runtimes that run multiple containerized applications, optimizing resource utilization and reducing costs.
+
+Practical Implementation
+
+Docker Desktop enables users to run containers via GUI or command-line interface. The basic workflow involves pulling an image, configuring port mappings, and launching the container for immediate use.
+
+Images vs. Containers
+
+An image is a read-only template containing the instructions for creating a container — it packages the application code, a runtime, libraries, environment variables, and configuration files needed to run the application. A container is a runnable instance of an image: you can create, start, stop, move, or delete a container, and you can create many containers from the very same image, each running as an independent, isolated process with its own writable layer stacked on top of the shared read-only image layers.
+
+Basic Container Lifecycle Commands
+
+Pull an image from a registry:
+
+docker pull nginx:latest
+
+Run a new container from an image, mapping a host port to a container port:
+
+docker run -d -p 8080:80 --name my-nginx nginx:latest
+
+List running containers:
+
+docker ps
+
+List all containers, including stopped ones:
+
+docker ps -a
+
+Stop a running container:
+
+docker stop my-nginx
+
+Remove a stopped container:
+
+docker rm my-nginx
+
+View logs from a container's main process:
+
+docker logs my-nginx
+
+Open an interactive shell inside a running container, useful for debugging:
+
+docker exec -it my-nginx /bin/bash
+
+Why Containers Improve Consistency
+
+A container bundles an application together with the exact versions of every library and system dependency it was built and tested against, so it behaves the same way regardless of what's installed on the host machine. This eliminates an entire class of "it works on my machine" bugs that arise when a developer's laptop has a different version of a system library, interpreter, or database client than the production server does — the container simply carries its own copy of everything it needs, rather than depending on whatever happens to already be installed on whichever machine it lands on.
+
+The Restart Policy and Container Lifecycle
+
+By default, a container's process runs until it exits, either normally or due to an unhandled error, and then the container stops — it does not restart automatically unless explicitly configured to. The --restart flag on docker run controls this behavior, with common values being no (the default), on-failure (restart only if the process exits with a non-zero code), and always (restart unconditionally, including after a full Docker daemon restart), which matters for any long-running service container that's expected to recover automatically from a crash without manual intervention.
+
+
+Docker: Key Dockerfile Instructions
+
+FROM
+
+Initializes a new build stage and sets the base image. A valid Dockerfile must start with a FROM instruction.
+
+FROM ubuntu:22.04
+
+RUN
+
+Executes commands during the build process to create new layers. The RUN instruction will execute any commands to create a new layer on top of the current image.
+
+RUN apt-get update && apt-get install -y curl
+
+COPY
+
+Transfers files from the build context into the image. The COPY instruction copies new files or directories from <src> and adds them to the filesystem of the image at the path <dest>.
+
+COPY app.py /usr/src/app/
+
+WORKDIR
+
+Establishes the working directory for subsequent instructions. The WORKDIR instruction sets the working directory for any RUN, CMD, ENTRYPOINT, COPY and ADD instructions that follow it.
+
+WORKDIR /app
+
+CMD
+
+Specifies the default command executed when a container starts. The CMD instruction sets the command to be executed when running a container from an image.
+
+CMD ["python", "app.py"]
+
+EXPOSE
+
+Documents which ports the application listens on at runtime. The EXPOSE instruction informs Docker that the container listens on the specified network ports at runtime.
+
+EXPOSE 8080
+
+ENV
+
+Establishes environment variables persisted throughout the image. The ENV instruction sets the environment variable and the value will be in the environment for all subsequent instructions.
+
+ENV NODE_ENV=production
+
+ENTRYPOINT
+
+Configures the container to run as an executable with a primary command. An ENTRYPOINT allows you to configure a container that will run as an executable.
+
+ENTRYPOINT ["node", "server.js"]
+
+ARG
+
+Defines a build-time variable that users can pass to the builder using --build-arg, but which does not persist in the final running container the way ENV does. Useful for parameterizing a build without baking the value permanently into the image.
+
+ARG VERSION=latest
+FROM ubuntu:${VERSION}
+
+LABEL
+
+Attaches arbitrary metadata to an image as key-value pairs, useful for recording things like the maintainer, a version string, or a link back to source control, without affecting how the image runs.
+
+LABEL maintainer="devteam@example.com" version="1.0"
+
+VOLUME
+
+Creates a mount point and marks it as holding externally mounted volumes from the host or from other containers, signaling that data written to this path should be treated as persistent rather than as part of the throwaway container filesystem.
+
+VOLUME ["/data"]
+
+USER
+
+Sets the user (and optionally group) that subsequent RUN, CMD, and ENTRYPOINT instructions run as. Running as a non-root user is a widely recommended security practice, since it limits what an attacker can do if they manage to execute arbitrary code inside the container.
+
+RUN useradd -m appuser
+USER appuser
+
+ADD vs COPY
+
+Both instructions copy files into the image, but ADD has extra abilities that COPY deliberately lacks: ADD can automatically extract local tar archives into the destination directory, and ADD can fetch remote URLs directly into the image. Because these extra behaviors can be surprising, official Docker guidance recommends preferring COPY for straightforwardly copying local files, reserving ADD only for the specific cases where its tar-extraction or remote-fetch behavior is actually wanted.
+
+ADD app.tar.gz /usr/src/app/
+COPY requirements.txt /usr/src/app/
+
+HEALTHCHECK
+
+Tells Docker how to test whether a container is still working correctly, beyond simply checking that its main process hasn't exited. Docker periodically runs the specified command and reports the container's health status (starting, healthy, or unhealthy) which orchestration tools can use to decide whether to route traffic to it or restart it.
+
+HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost/ || exit 1
+
+.dockerignore
+
+Although not a Dockerfile instruction itself, a .dockerignore file placed alongside the Dockerfile excludes matching files and directories from the build context sent to the Docker daemon, which speeds up builds and prevents accidentally copying sensitive files (like .env or .git) into an image via a broad COPY . . instruction.
+
+node_modules
+.git
+.env
+*.log
+
+Layer Caching and Instruction Ordering
+
+Each instruction in a Dockerfile creates a new image layer, and Docker caches layers so unchanged instructions don't need to be re-executed on subsequent builds. Because of this, Dockerfiles are conventionally ordered to put instructions that change least often (like installing system dependencies) before instructions that change most often (like copying application source code), maximizing how much of the build can be served from cache on incremental rebuilds:
+
+FROM node:20
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm install
+COPY . .
+CMD ["node", "server.js"]
+
+Here, package.json is copied and npm install runs before the rest of the source is copied, so editing application code without changing dependencies lets Docker reuse the cached npm install layer instead of reinstalling every dependency on every single build.
+
+
+Docker: Image Layers and Registries
+
+Source: general Docker documentation on images (https://docs.docker.com/get-started/docker-concepts/building-images/)
+
+How Image Layers Work
+
+A Docker image is built up from a series of read-only layers, where each layer represents a change made by one instruction in the Dockerfile. When a container runs from an image, Docker adds one additional writable layer on top of the image's stacked read-only layers, and any files the running container creates or modifies live only in that writable layer. If the container is removed, that writable layer is discarded, while the underlying image layers remain untouched and reusable by any other container started from the same image.
+
+Layer Caching
+
+Because each instruction produces its own layer, and Docker caches layers by content, unchanged instructions can reuse a previously built layer instead of re-executing on a subsequent build. This is the mechanism behind the common advice to order a Dockerfile's instructions from least-frequently-changing (installing system packages) to most-frequently-changing (copying application source code), since it maximizes how much of a rebuild can be served entirely from cache.
+
+Inspecting an Image's Layers
+
+The history of an image, including the size contributed by each layer, can be inspected with:
+
+docker history myimage:latest
+
+This is useful for diagnosing unexpectedly large images — a layer that copies in an entire node_modules directory or an unnecessary build cache often stands out clearly in this output as contributing a disproportionate amount to the final image size.
+
+Image Tags
+
+An image reference typically has the form repository:tag, where the tag identifies a specific version or variant of an image within that repository. If no tag is specified, Docker defaults to latest, which despite its name does not necessarily mean the most recently built or most stable version — it's simply a conventional tag name, and many projects deliberately avoid relying on it in production for exactly that reason, preferring an explicit version tag instead.
+
+docker pull postgres:16
+docker pull postgres:16-alpine
+docker pull postgres:latest
+
+Registries
+
+A registry is a service that stores and distributes Docker images. Docker Hub is the default public registry, but organizations frequently run private registries (self-hosted, or hosted by a cloud provider) to store proprietary images that shouldn't be publicly accessible. Pushing an image to a registry other than Docker Hub requires tagging it with that registry's hostname as a prefix:
+
+docker tag myapp:latest registry.example.com/myteam/myapp:1.0
+docker push registry.example.com/myteam/myapp:1.0
+
+Pulling from that same private registry later requires authentication if the registry isn't public:
+
+docker login registry.example.com
+docker pull registry.example.com/myteam/myapp:1.0
+
+Content-Addressable Image Digests
+
+Beyond human-readable tags, every image also has a content-addressable digest — a SHA256 hash computed from the image's actual content — which uniquely and immutably identifies a specific image, unlike a tag which can be reassigned to point at different content over time. Referencing an image by digest instead of by tag guarantees you always get the exact same bytes, which matters for reproducible builds and for security-sensitive deployments where a tag could theoretically be silently repointed at different content by whoever controls the registry:
+
+docker pull myimage@sha256:abcdef1234567890...
+
+Multi-Architecture Images (Manifest Lists)
+
+Modern container registries support multi-architecture images, where a single tag actually refers to a manifest list pointing at different underlying images for different CPU architectures (amd64, arm64, and so on). When you docker pull a multi-architecture tag, Docker automatically selects the manifest matching your local machine's architecture, which is why the exact same docker run command works unmodified on both an Intel/AMD laptop and an Apple Silicon or ARM-based server, each silently pulling the appropriate underlying image for its own architecture.

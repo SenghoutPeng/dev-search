@@ -1,0 +1,410 @@
+Error Handling and Go
+
+Source: https://go.dev/blog/error-handling-and-go
+
+Introduction
+
+Go uses the built-in `error` type to indicate abnormal states. For example:
+
+```go
+func Open(name string) (file *File, err error)
+```
+
+When using functions that return errors, you check them explicitly:
+
+```go
+f, err := os.Open("filename.ext")
+if err != nil {
+    log.Fatal(err)
+}
+// do something with the open *File f
+```
+
+The Error Type
+
+The `error` type is an interface with a single method:
+
+```go
+type error interface {
+    Error() string
+}
+```
+
+The most common implementation is the `errors` package's `errorString` type:
+
+```go
+type errorString struct {
+    s string
+}
+
+func (e *errorString) Error() string {
+    return e.s
+}
+
+func New(text string) error {
+    return &errorString{text}
+}
+```
+
+Using errors.New
+
+```go
+func Sqrt(f float64) (float64, error) {
+    if f < 0 {
+        return 0, errors.New("math: square root of negative number")
+    }
+    // implementation
+}
+```
+
+Using fmt.Errorf
+
+For richer error messages:
+
+```go
+if f < 0 {
+    return 0, fmt.Errorf("math: square root of negative number %g", f)
+}
+```
+
+Custom Error Types
+
+You can create custom error implementations with additional context:
+
+```go
+type NegativeSqrtError float64
+
+func (f NegativeSqrtError) Error() string {
+    return fmt.Sprintf("math: square root of negative number %g", float64(f))
+}
+```
+
+Callers can use type assertions to inspect error details:
+
+```go
+if err != nil {
+    if serr, ok := err.(NegativeSqrtError); ok {
+        // handle specifically
+    }
+}
+```
+
+Error Interfaces with Additional Methods
+
+Some error types implement additional methods. For example, `net.Error`:
+
+```go
+package net
+
+type Error interface {
+    error
+    Timeout() bool   // Is the error a timeout?
+    Temporary() bool // Is the error temporary?
+}
+```
+
+Usage example:
+
+```go
+if nerr, ok := err.(net.Error); ok && nerr.Temporary() {
+    time.Sleep(1e9)
+    continue
+}
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+Simplifying Repetitive Error Handling
+
+The appHandler Pattern
+
+Instead of repeating error handling code across multiple HTTP handlers, define a custom handler type:
+
+```go
+type appHandler func(http.ResponseWriter, *http.Request) error
+
+func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    if err := fn(w, r); err != nil {
+        http.Error(w, err.Error(), 500)
+    }
+}
+```
+
+Handler Implementation
+
+Original repetitive code:
+
+```go
+func viewRecord(w http.ResponseWriter, r *http.Request) {
+    c := appengine.NewContext(r)
+    key := datastore.NewKey(c, "Record", r.FormValue("id"), 0, nil)
+    record := new(Record)
+    if err := datastore.Get(c, key, record); err != nil {
+        http.Error(w, err.Error(), 500)
+        return
+    }
+    if err := viewTemplate.Execute(w, record); err != nil {
+        http.Error(w, err.Error(), 500)
+    }
+}
+```
+
+Simplified version:
+
+```go
+func viewRecord(w http.ResponseWriter, r *http.Request) error {
+    c := appengine.NewContext(r)
+    key := datastore.NewKey(c, "Record", r.FormValue("id"), 0, nil)
+    record := new(Record)
+    if err := datastore.Get(c, key, record); err != nil {
+        return err
+    }
+    return viewTemplate.Execute(w, record)
+}
+
+func init() {
+    http.Handle("/view", appHandler(viewRecord))
+}
+```
+
+Enhanced Error Handling with Context
+
+```go
+type appError struct {
+    Error   error
+    Message string
+    Code    int
+}
+
+type appHandler func(http.ResponseWriter, *http.Request) *appError
+
+func (fn appHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    if e := fn(w, r); e != nil {
+        c := appengine.NewContext(r)
+        c.Errorf("%v", e.Error)
+        http.Error(w, e.Message, e.Code)
+    }
+}
+
+func viewRecord(w http.ResponseWriter, r *http.Request) *appError {
+    c := appengine.NewContext(r)
+    key := datastore.NewKey(c, "Record", r.FormValue("id"), 0, nil)
+    record := new(Record)
+    if err := datastore.Get(c, key, record); err != nil {
+        return &appError{err, "Record not found", 404}
+    }
+    if err := viewTemplate.Execute(w, record); err != nil {
+        return &appError{err, "Can't display record", 500}
+    }
+    return nil
+}
+```
+
+Further Improvements
+
+- Add pretty HTML error templates
+- Display stack traces for administrators
+- Write a constructor function that stores stack traces
+- Recover from panics and log them as "Critical" errors
+
+Conclusion
+
+Proper error handling is essential for reliable Go code. By using the patterns and techniques described, you can write more robust and maintainable applications.
+
+Modern Error Wrapping with fmt.Errorf and %w
+
+Since Go 1.13, fmt.Errorf supports a %w verb that wraps an existing error inside a new one while preserving the ability to inspect the original error later. This lets you add context to an error as it propagates up through several layers of a call stack, without losing the underlying cause:
+
+```go
+func loadConfig(path string) error {
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return fmt.Errorf("loading config from %s: %w", path, err)
+    }
+    // ...
+    return nil
+}
+```
+
+errors.Is and errors.As
+
+The errors package provides two functions for working with wrapped error chains. errors.Is checks whether a target error appears anywhere in a chain of wrapped errors, unwrapping as needed:
+
+```go
+if errors.Is(err, os.ErrNotExist) {
+    // the file genuinely doesn't exist, even if err was wrapped several times
+}
+```
+
+errors.As checks whether an error in the chain matches a specific type, and if so, assigns it into the provided pointer, letting you extract structured error information even through several layers of wrapping:
+
+```go
+var pathErr *fs.PathError
+if errors.As(err, &pathErr) {
+    fmt.Println("failed path:", pathErr.Path)
+}
+```
+
+Sentinel Errors
+
+A sentinel error is a specific, exported error value that callers can compare against directly using errors.Is, commonly declared as a package-level variable:
+
+```go
+var ErrNotFound = errors.New("item not found")
+
+func Find(id int) (*Item, error) {
+    if !exists(id) {
+        return nil, ErrNotFound
+    }
+    // ...
+}
+```
+
+Callers check for this specific condition without needing to inspect the error's message string, which is fragile, or its concrete type, which may be unnecessary ceremony for a simple "not found" signal:
+
+```go
+item, err := Find(42)
+if errors.Is(err, ErrNotFound) {
+    // handle the not-found case specifically
+}
+```
+
+Panic and Recover
+
+Go distinguishes ordinary errors, which are expected and handled through the normal error return value, from panics, which represent unrecoverable programming errors like an out-of-bounds slice access or a nil pointer dereference. A panic unwinds the current goroutine's stack, running any deferred functions along the way, and the program crashes unless something calls recover inside one of those deferred functions:
+
+```go
+func safeDivide(a, b int) (result int, err error) {
+    defer func() {
+        if r := recover(); r != nil {
+            err = fmt.Errorf("recovered from panic: %v", r)
+        }
+    }()
+    result = a / b
+    return result, nil
+}
+```
+
+recover only has an effect when called directly inside a deferred function; calling it anywhere else always returns nil and has no effect. As a matter of Go style, panics should be reserved for truly exceptional, programmer-error situations rather than used as a general control-flow mechanism for expected failure conditions, which should instead be reported through ordinary returned errors.
+</content>
+
+
+Go: Writing Tests with the Testing Package
+
+Source: https://go.dev/doc/tutorial/add-a-test
+
+Test File Naming Conventions
+
+Go has a built-in convention for tests: a test file's name must end with _test.go. Ending a file's name with _test.go tells the go test command that this file contains test functions. For example, a package named greetings would have its tests in greetings_test.go, sitting alongside greetings.go in the same directory.
+
+Test Function Structure
+
+Test functions follow two rules: the function name should begin with Test, and it should describe the specific scenario being tested (by convention, Test_Name where Name describes the case). Its signature takes a single parameter, a pointer to the testing package's testing.T type: func TestSomething(t *testing.T). Test functions must live in the same package as the code under test so they can call unexported functions directly.
+
+Example Test Functions
+
+package greetings
+
+import (
+    "testing"
+    "regexp"
+)
+
+// TestHelloName calls greetings.Hello with a name, checking
+// for a valid return value.
+func TestHelloName(t *testing.T) {
+    name := "Gladys"
+    want := regexp.MustCompile(`\b`+name+`\b`)
+    msg, err := Hello("Gladys")
+    if !want.MatchString(msg) || err != nil {
+        t.Errorf(`Hello("Gladys") = %q, %v, want match for %#q, nil`, msg, err, want)
+    }
+}
+
+// TestHelloEmpty calls greetings.Hello with an empty string,
+// checking for an error.
+func TestHelloEmpty(t *testing.T) {
+    msg, err := Hello("")
+    if msg != "" || err == nil {
+        t.Errorf(`Hello("") = %q, %v, want "", error`, msg, err)
+    }
+}
+
+The first test calls Hello with a name and checks that the returned greeting matches a pattern that would include the name, and that no error was returned. The second test calls Hello with an empty string and expects an error to come back along with an empty message, verifying the function correctly rejects invalid input.
+
+Reporting Failures with Errorf
+
+Inside a failing test, call t.Errorf on the *testing.T argument to report a failure to the console and record it as a test failure, without stopping execution of the rest of the test function. Errorf's arguments work like fmt.Sprintf: a format string followed by values to interpolate. Writing a clear failure message that includes the actual and expected values makes it much faster to diagnose what went wrong when a test fails, especially in CI logs where you can't set a breakpoint.
+
+Running Tests with go test
+
+From the directory containing the test file, run:
+
+$ go test
+PASS
+ok      example.com/greetings   0.364s
+
+The go test command executes all test functions whose names begin with Test in files whose names end with _test.go, and reports PASS if every test in the package passed.
+
+Verbose Output
+
+Add the -v flag for verbose output that lists every test function and its individual result:
+
+$ go test -v
+=== RUN   TestHelloName
+--- PASS: TestHelloName (0.00s)
+=== RUN   TestHelloEmpty
+--- PASS: TestHelloEmpty (0.00s)
+PASS
+ok      example.com/greetings   0.372s
+
+Failure Output
+
+When a test fails, go test prints the file and line number where t.Errorf was called along with the message you supplied, then reports the overall package result as FAIL:
+
+$ go test
+--- FAIL: TestHelloName (0.00s)
+    greetings_test.go:15: Hello("Gladys") = "Hail, %v! Well met!", <nil>, want match for `\bGladys\b`, nil
+FAIL
+exit status 1
+FAIL    example.com/greetings   0.182s
+
+Table-Driven Tests
+
+A common Go idiom is the table-driven test, where a slice of struct literals enumerates input/expected-output pairs, and a single loop runs the same assertions against every case. This avoids copy-pasting near-identical test functions and makes it easy to add new cases:
+
+func TestSquare(t *testing.T) {
+    cases := []struct {
+        name string
+        in   int
+        want int
+    }{
+        {"positive", 4, 16},
+        {"zero", 0, 0},
+        {"negative", -3, 9},
+    }
+
+    for _, c := range cases {
+        t.Run(c.name, func(t *testing.T) {
+            got := Square(c.in)
+            if got != c.want {
+                t.Errorf("Square(%d) = %d, want %d", c.in, got, c.want)
+            }
+        })
+    }
+}
+
+t.Run creates a subtest with its own name, so a failure clearly identifies which case in the table failed, and subtests can be filtered individually with go test -run TestSquare/negative.
+
+Other Useful Testing Package Features
+
+Beyond Errorf, the testing package exposes t.Fatal and t.Fatalf, which report a failure and immediately stop the current test function (useful when a setup step fails and continuing would just produce confusing follow-on errors). t.Skip and t.Skipf mark a test as skipped rather than failed, often used to bypass a test that depends on unavailable infrastructure. Benchmarks live alongside tests in the same _test.go files as functions named BenchmarkXxx(b *testing.B), and are run with go test -bench=..
+
+Go test also supports coverage analysis out of the box:
+
+$ go test -cover
+$ go test -coverprofile=coverage.out
+$ go tool cover -html=coverage.out
+
+These commands report what percentage of statements were executed during the test run and can generate an HTML report highlighting exactly which lines were and weren't covered, which is useful for spotting untested branches of error-handling code.

@@ -1,0 +1,267 @@
+Java: Classes and Objects
+
+Source: https://docs.oracle.com/javase/tutorial/java/javaOO/classes.html
+
+Overview
+
+Classes are the fundamental building blocks of Java programs. A class declaration includes fields, which hold the state of an object, constructors, which are special methods used to initialize new objects, and methods, which define the behavior available on the class. A class in Java is declared using the class keyword, typically preceded by an access modifier such as public.
+
+Fields
+
+Fields are variables declared inside a class but outside any method. They represent the state that each object of the class carries. In the classic Bicycle example, three fields are declared: cadence, gear, and speed, each an int. Every instance of Bicycle gets its own copy of these fields, so two different bicycle objects can track different cadence and speed values independently of one another.
+
+Constructors
+
+A constructor is used to initialize new objects. It has the same name as the class and, syntactically, looks a lot like a method, except that constructors have no explicit return type. In the Bicycle example, the constructor accepts starting values for cadence, speed, and gear as arguments, and assigns them to the corresponding fields. Constructors let you guarantee that an object begins its life in a sensible, fully initialized state, rather than leaving fields to default values that might not make sense for the application.
+
+Methods
+
+Methods define the behavior of a class. The Bicycle class provides four methods: setCadence, setGear, applyBrake, and speedUp. Each method operates on the fields of the current object, updating them in response to calls from other code. Methods can take parameters, perform calculations, and optionally return a value to the caller. Well-designed methods hide the internal representation of an object's state and expose only the operations that make sense for client code to call.
+
+Creating and Using Objects
+
+A class is a blueprint; an object is an instance of that blueprint created at runtime. Objects are created using the new keyword followed by a call to a constructor, for example new Bicycle(20, 0, 1). Once created, you can invoke the object's methods and access its fields (subject to access control) using the dot operator. Each object maintains its own copy of the instance fields defined by the class, so calling setCadence on one Bicycle object does not affect any other Bicycle object.
+
+Inheritance and Subclasses
+
+Java supports inheritance through the extends keyword. A subclass such as MountainBike can extend Bicycle, automatically inheriting all of Bicycle's fields and methods while adding new fields, like seatHeight, and new methods, like setHeight. The subclass constructor typically calls the parent constructor with the super keyword to initialize inherited fields before setting up its own additional state. This lets related classes share common behavior while still specializing where necessary.
+
+Other Topics Covered
+
+The full lesson on classes and objects in the Java tutorials also covers declaring member variables in detail, defining methods and their signatures, passing information into methods and constructors, returning values from methods, the this keyword for referring to the current object, controlling access to class members with modifiers such as public, private, and protected, understanding static versus instance class members, initializing fields with default and explicit values, nested and inner classes, local and anonymous classes, lambda expressions, method references, and enum types. Together these topics form the foundation for everything else in the Java language, since virtually every Java program is built from classes and the objects instantiated from them.
+
+Access Modifiers
+
+Java controls visibility of fields, methods, and constructors using four levels of access. public members are visible from any other class anywhere in the program. private members are visible only within the declaring class itself, which is the standard way to hide an object's internal state from outside interference. protected members are visible within the same package and to subclasses even in other packages, which supports controlled reuse through inheritance. Package-private access, meaning no modifier at all, restricts visibility to classes within the same package. Choosing the narrowest access level that still satisfies a class's collaborators is a core discipline of encapsulation, since it keeps the surface area that other code can depend on as small as possible.
+
+The this Keyword
+
+Inside an instance method or constructor, the keyword this refers to the current object, the one the method was invoked on. Its most common use is disambiguating between a field and a constructor or method parameter that share the same name, for example this.cadence = cadence inside a constructor whose parameter is also named cadence. this can also be used to call one constructor from another constructor in the same class, known as constructor chaining, or to pass the current object as an argument to another method that expects an instance of the class.
+
+Static Versus Instance Members
+
+A field or method marked static belongs to the class itself rather than to any individual instance, meaning there is exactly one copy shared across every object of that class, and it can be accessed through the class name without needing an instance at all. Instance members, by contrast, exist separately for every object created from the class, so each object can hold its own independent state. Static fields are commonly used for constants shared across all instances, or for counters that track something about the class as a whole, such as how many instances have been created so far.
+
+Nested, Inner, Local, and Anonymous Classes
+
+Java allows a class to be defined inside another class. A static nested class behaves much like a top-level class but is scoped inside its enclosing class's namespace. A non-static inner class, by contrast, is associated with a specific instance of the enclosing class and can access that instance's fields and methods directly. Local classes are defined inside a method body and are visible only within that method, while anonymous classes combine a class declaration and object instantiation into a single expression, commonly used to provide a one-off implementation of an interface or an abstract class without creating a separate named class file.
+
+Enum Types
+
+An enum type is a special kind of class used to represent a fixed set of named constant values, such as the days of the week or the suits in a deck of cards. Declared with the enum keyword, an enum can have its own fields, constructors, and methods, just like an ordinary class, but the set of instances is fixed at compile time to exactly the constants listed in the enum body. Because enums are full classes, they can implement interfaces and participate in switch statements in a type-safe way that plain integer or string constants cannot match.
+
+
+Java: Interfaces
+
+Source: https://docs.oracle.com/javase/tutorial/java/IandI/createinterface.html
+
+What Is an Interface
+
+In software engineering it is often important for separate groups of programmers to agree on a contract that describes how their code interacts, without either group needing to know how the other implements its side. Interfaces are exactly this kind of contract in Java. An interface is a reference type, similar to a class, that can contain only constants, method signatures, default methods, static methods, and nested types. Method bodies exist only for default methods and static methods; ordinary method signatures declared in an interface have no body at all. Interfaces cannot be instantiated on their own. They can only be implemented by classes, or extended by other interfaces.
+
+A Motivating Example
+
+Imagine a futuristic society where computer-controlled robotic cars transport passengers through city streets without a human operator. One group of engineers, the automobile manufacturers, writes the software that operates the car itself: stop, start, accelerate, turn left, and so on. A second, entirely separate group, the electronic guidance manufacturers, builds systems that use GPS position data and live traffic information to decide how the car should move. The auto manufacturers publish an industry-standard interface describing exactly which methods can be invoked to make any car move, regardless of manufacturer. The guidance companies then write software against that published interface without needing to know how any particular manufacturer implements the car's internals, and the manufacturers remain free to change their implementation at any time as long as they continue to honor the published interface.
+
+Declaring an Interface
+
+Defining an interface looks much like defining a class, but uses the interface keyword instead of class. A typical interface, such as an OperateCar interface, declares a set of method signatures with no braces, each terminated by a semicolon, for example methods like turn, changeLanes, signalTurn, getRadarFront, and getRadarRear. These signatures specify exactly what operations must be supported by any class that claims to implement the interface, without specifying how those operations are carried out.
+
+Implementing an Interface
+
+To use an interface, you write a class that implements it using the implements keyword. When an instantiable class implements an interface, it must provide a method body for every method declared in that interface. Continuing the robotic car example, a class such as OperateBMW760i would implement OperateCar and supply real, manufacturer-specific code for each method, such as turning on and off the appropriate turn indicator lights inside signalTurn. Different manufacturers, such as Chevrolet and Toyota, can implement the very same interface in substantially different ways internally while still guaranteeing that any client code written against OperateCar will work correctly with either implementation.
+
+Interfaces as APIs
+
+Interfaces are frequently used as a public Application Programming Interface, or API, in commercial software. A company selling a package of complex functionality, such as digital image processing routines, writes its classes to implement a published interface and makes that interface public to its customers, while keeping the concrete implementation a closely guarded secret. Client applications call the methods described by the interface's signatures and return types, and the vendor is free to revise the internal implementation later, as long as the original interface that customers depend on continues to be honored.
+
+Default Methods and Static Methods
+
+Since Java 8, interfaces can also declare default methods, which provide a default implementation that implementing classes may use as-is or override, and static methods, which belong to the interface itself rather than to any implementing class or instance. Default methods make it possible to add new functionality to an existing interface without breaking classes that already implement it, since those classes automatically inherit the new default behavior unless they choose to override it.
+
+Multiple Interface Implementation
+
+Unlike class inheritance, where a Java class may extend only one superclass, a single class is free to implement any number of interfaces at once, simply by listing each interface name after the implements keyword, separated by commas. This is one of the main ways Java offers behavior that resembles multiple inheritance without the ambiguity problems that multiple class inheritance can introduce, since a class implementing several interfaces still has a single, unambiguous concrete superclass, while separately committing to satisfy the method contracts of every interface it implements.
+
+Interfaces Extending Other Interfaces
+
+An interface can extend one or more other interfaces using the extends keyword, and unlike classes, an interface is allowed to extend multiple parent interfaces at once. The extending interface inherits every constant and method signature declared by each of its parent interfaces, and any class that implements the extending interface must therefore provide implementations for all of those inherited method signatures as well as any the extending interface declares itself. This lets interface hierarchies be composed out of smaller, focused interfaces, letting a class opt into exactly the combination of contracts it needs.
+
+Marker Interfaces
+
+Some interfaces, called marker interfaces, declare no methods or constants at all and exist purely to tag a class as having some property, which other code can then check for using an instanceof test. Serializable is a well-known example of a marker interface in the standard library, used to indicate that instances of a class are eligible to be converted into a byte stream. While annotations have largely replaced marker interfaces for many new use cases since Java 5, marker interfaces remain a simple, effective idiom, especially where the check needs to happen at compile time through the type system rather than through runtime reflection over annotations.
+
+Interfaces and Abstract Classes Compared
+
+Interfaces are often compared with abstract classes, since both can declare method signatures without providing a full implementation. The key difference is that a class can extend only one abstract class but can implement any number of interfaces, and, prior to default methods, an interface could not provide any method implementation at all, while an abstract class has always been able to mix fully implemented methods alongside abstract ones. Abstract classes are generally the better choice when related classes share substantial common implementation and a clear single-inheritance relationship, while interfaces are the better choice for defining a capability or contract that many otherwise unrelated classes might want to implement.
+
+
+Java: Generics
+
+Source: https://docs.oracle.com/javase/tutorial/java/generics/why.html
+
+What Generics Are
+
+Generics enable types, meaning classes and interfaces, to be used as parameters when defining classes, interfaces, and methods. This is much like the familiar formal parameters used in ordinary method declarations, except that instead of accepting values as input, a type parameter accepts a type as input. This single idea lets the same piece of code be reused safely across many different concrete types without duplicating logic for each one.
+
+Stronger Type Checks at Compile Time
+
+The Java compiler applies strong type checking to generic code and reports an error if the code would violate type safety. Fixing a compile-time error is far easier than tracking down a runtime error, since runtime errors can be difficult to find and can surface long after the code that caused them has executed. Generics let the compiler catch these problems immediately, before the program ever runs, rather than allowing an incompatible type to silently slip into a collection and cause a failure much later, far from the code that introduced the mistake.
+
+Elimination of Casts
+
+Without generics, code that retrieves an element from a raw collection needs an explicit cast, for example casting the result of list.get(0) to String after adding a String to a plain List. With generics, the same operation on a properly parameterized List of String requires no cast at all, because the compiler already knows the element type. This removes a whole category of boilerplate and makes the resulting code both cleaner and less error-prone, since an incorrect cast that used to fail at runtime with a ClassCastException is now caught at compile time instead.
+
+Enabling Generic Algorithms
+
+By parameterizing types, programmers can implement generic algorithms that work uniformly across collections of different element types, on different types of parameters, and across broader ranges of use than would be possible with non-generic code. This lets developers build customizable, reusable components and utility methods while still preserving full type safety and code readability, since the type parameter documents exactly what kind of data the algorithm expects to work with.
+
+Generic Types and Generic Methods
+
+A generic type is a class or interface that is parameterized over types, declared with one or more type parameters in angle brackets after the class or interface name, such as class Box<T>. A generic method is a method, whether declared inside a generic or an ordinary class, that introduces its own type parameter, independent of any type parameter that might belong to the enclosing class. Generic methods allow type-safe, reusable static or instance utility methods, such as a method that compares or merges two arrays of an arbitrary common element type.
+
+Bounded Type Parameters
+
+Sometimes it is necessary to restrict the types that can be used as arguments to a type parameter, for instance requiring that any type substituted for T implement Comparable so that elements can be compared to one another. This is achieved with a bounded type parameter, written for example as <T extends Comparable<T>>. Bounded type parameters let generic methods and classes invoke methods defined by the bound, such as compareTo, directly on values of the type parameter, something that would not otherwise be possible since the compiler otherwise only knows the type parameter as an unconstrained placeholder for Object.
+
+Multiple Bounds
+
+A type parameter can have multiple bounds by separating them with an ampersand, for example <T extends Comparable<T> & Serializable>, meaning that any concrete type substituted for T must satisfy every listed bound simultaneously. If one of the bounds is a class rather than an interface, the class must be listed first, and at most one class bound is allowed; a type parameter may be bounded by any number of interfaces but only ever by one class. Multiple bounds are useful when a generic algorithm genuinely needs more than one capability from its type parameter, such as needing both ordering, from Comparable, and the ability to be serialized, from Serializable, in the same generic method.
+
+Generic Classes
+
+A generic class is declared the same way as an ordinary class, except that its name is followed by a type parameter section in angle brackets. A simple example is a Box class declared as class Box<T>, holding a single private field of type T along with getter and setter methods that operate on that field. Once declared this way, the very same Box class definition can be used to create an Integer box, a String box, or a box of any other reference type, simply by supplying a different type argument at the point where the class is used, such as Box<Integer> or Box<String>, without writing a separate Box implementation for each type.
+
+Type Inference and the Diamond Operator
+
+Since Java 7, the compiler can infer type arguments for a generic class instantiation from the surrounding context, which allows the empty angle brackets known as the diamond operator to replace an explicit repeated type argument on the right-hand side of an assignment. For example, a variable declared as List<String> names can be initialized with new ArrayList<>() instead of the more verbose new ArrayList<String>(), since the compiler already knows the target type from the declaration on the left. This reduces visual noise in code that uses generic types heavily, while still preserving full compile-time type checking.
+
+Wildcards
+
+Wildcards, written as a question mark, represent an unknown type and are primarily useful when the exact type argument does not matter, only some property of it. An upper-bounded wildcard, such as <? extends Number>, restricts the unknown type to Number or one of its subtypes, and is useful for methods that only need to read values out of a generic structure. A lower-bounded wildcard, such as <? super Integer>, restricts the unknown type to Integer or one of its supertypes, and is useful for methods that only need to write values into a generic structure. An unbounded wildcard, written simply as <?>, is used when the code works with a generic type in a way that does not depend on the actual type argument at all, for example when merely checking whether a List is empty.
+
+Type Erasure
+
+Generic type information in Java exists primarily at compile time; the compiler uses it to enforce type safety and to insert the necessary casts automatically, but this information is largely erased from the compiled bytecode itself, a process known as type erasure. At runtime, a List<String> and a List<Integer> are both represented by the same raw List class, and reflective code cannot generally distinguish between them by inspecting an object's runtime type alone. Type erasure is the reason certain operations are disallowed on type parameters, such as creating a new instance of a type parameter directly, or creating an array of a parameterized type, since the runtime representation simply does not retain enough information to support those operations safely.
+
+Raw Types and Legacy Code
+
+A raw type is the name of a generic class or interface used without any type argument at all, for example plain List instead of List<String>, and exists mainly for backward compatibility with code written before generics were introduced in Java 5. Using raw types disables generic type checking for that particular variable, reintroducing the possibility of a ClassCastException at runtime and reintroducing the need for explicit casts when reading elements back out. Modern Java code should avoid raw types in new code entirely, reserving them only for the rare case of interfacing with older, pre-generics libraries that cannot be changed.
+
+Generics and Subtyping
+
+A common point of confusion is that List<Integer> is not a subtype of List<Number>, even though Integer itself is a subtype of Number, because allowing that substitution would let code insert a Double into what the rest of the program believes is a list of Integers. This is why bounded wildcards exist: a parameter typed as List<? extends Number> can safely accept a List<Integer> or a List<Double> for reading purposes, since the compiler knows only that whatever is read out will be some kind of Number, without being able to guarantee what type it is safe to insert.
+
+PECS: Producer Extends, Consumer Super
+
+A widely used mnemonic for choosing between upper and lower bounded wildcards is PECS, meaning producer extends, consumer super. If a generic structure is only ever going to produce values, meaning values are read out of it, an extends wildcard is appropriate. If a generic structure is only ever going to consume values, meaning values are written into it, a super wildcard is appropriate. This principle guides the design of many generic methods in the standard library, such as the Collections.copy method, whose source list parameter is bounded with extends, since it only reads from that list, while its destination list parameter is bounded with super, since it only writes into that list.
+
+
+Java: Collections Framework
+
+Source: https://docs.oracle.com/javase/tutorial/collections/intro/index.html
+
+What Is a Collection
+
+A collection, sometimes called a container, is an object that groups multiple elements into a single unit. Collections are used to store, retrieve, manipulate, and communicate aggregate data, and they typically represent data items that form a natural group, such as a poker hand made up of cards, a mail folder containing letters, or a telephone directory that maps names to phone numbers. Because grouping data this way is such a common need, collections show up in virtually every programming language in one form or another.
+
+What Is a Collections Framework
+
+A collections framework is a unified architecture for representing and manipulating collections. Every collections framework, including Java's, is built from three key kinds of components. Interfaces are abstract data types that represent collections and allow them to be manipulated independently of the details of their internal representation; in an object-oriented language these interfaces typically form a hierarchy. Implementations are the concrete data structures that actually implement the collection interfaces, offering different performance characteristics and tradeoffs so a developer can choose the structure that best fits a given use case. Algorithms are the methods that perform useful computations, such as searching and sorting, on objects that implement collection interfaces; these algorithms are described as polymorphic because the very same method can operate on many different implementations of the appropriate interface, provided they satisfy that interface's contract.
+
+Interfaces in the Java Collections Framework
+
+The core collection interfaces include List, for ordered collections that permit duplicate elements and allow positional access; Set, for collections that contain no duplicate elements; Queue, for collections designed for holding elements prior to processing; and Map, for objects that map keys to values, where each key can map to at most one value. These interfaces sit at the top of the framework's hierarchy and are what most application code should be written against, rather than against any specific concrete implementation, so that the underlying implementation can be swapped later with minimal disruption.
+
+Benefit: Reduces Programming Effort
+
+By providing ready-made, useful data structures and algorithms, the Collections Framework frees developers to concentrate on the important parts of their programs instead of on the low-level plumbing required just to make basic data storage and retrieval work. It also facilitates interoperability among unrelated APIs by freeing developers from having to write adapter objects or conversion code every time two independently authored components need to exchange collections of data.
+
+Benefit: Increases Program Speed and Quality
+
+The framework supplies high-performance, high-quality implementations of common data structures and algorithms. Because the various implementations of a given interface are interchangeable, a program can often be tuned simply by swapping one implementation for another that offers better performance characteristics for the workload at hand, without changing any of the surrounding application logic. Being freed from writing custom data structures by hand also leaves more time to devote to improving the overall quality and performance of the rest of the program.
+
+Further Benefits
+
+The Collections Framework additionally allows interoperability among unrelated APIs, since the standard collection interfaces act as a common currency that different libraries can pass back and forth even when they were written completely independently. It reduces the effort needed to learn and use new APIs, because many APIs naturally accept and return collections, and the presence of standard interfaces means there is no need to learn a bespoke collection-handling approach for every new library. It reduces the effort required to design new APIs, since designers can rely on the standard interfaces instead of inventing their own each time. And finally, it fosters software reuse, because new data structures and new algorithms that conform to the standard collection interfaces are, by their very nature, reusable by any code already written against those interfaces.
+
+Common List Implementations
+
+ArrayList is the most commonly used implementation of the List interface, backed internally by a resizable array, which gives it fast constant-time positional access but comparatively slower insertion and removal in the middle of the list, since elements after the insertion point have to be shifted. LinkedList implements List as well, using a doubly linked list internally, which makes insertion and removal at either end fast but makes positional access slower, since reaching an arbitrary index requires walking the list from one end. Choosing between them generally comes down to whether an application does more random access lookups, favoring ArrayList, or more frequent insertions and removals at the ends, favoring LinkedList.
+
+Common Set Implementations
+
+HashSet is the most widely used Set implementation, backed by a hash table, offering constant-time average performance for adding, removing, and checking membership, but with no guarantee about iteration order. LinkedHashSet behaves like HashSet but additionally maintains a doubly linked list running through all of its entries, so it iterates in the order elements were inserted, at a modest additional memory cost. TreeSet implements the SortedSet interface, keeping its elements in sorted order at all times, backed internally by a red-black tree, which makes it the right choice whenever an application needs to walk a collection's unique elements in ascending or descending order.
+
+Common Map Implementations
+
+HashMap is the standard general-purpose implementation of the Map interface, offering constant-time average performance for the core get and put operations, backed by a hash table keyed on each key's hash code. LinkedHashMap extends HashMap while additionally preserving a predictable iteration order, either insertion order or, optionally, access order, which is useful for building things like a simple least-recently-used cache. TreeMap implements SortedMap, keeping its keys sorted at all times, and is the natural choice whenever code needs to iterate a map's entries in key order or efficiently query for the nearest keys above or below a given value.
+
+Iterating Over Collections
+
+The most general way to iterate over any Collection is the enhanced for loop, commonly called for-each, which works with any object implementing the Iterable interface, including every standard collection type. Under the hood, for-each obtains an Iterator from the collection and repeatedly calls its hasNext and next methods. When a collection needs to be modified while it is being iterated, code should use the Iterator's own remove method rather than calling a removal method directly on the collection, since structurally modifying most collections during iteration through any other means throws a ConcurrentModificationException.
+
+The Collections Utility Class
+
+Alongside the collection interfaces and implementations themselves, the java.util.Collections class supplies a set of static utility methods that operate on collections, including sort, for putting a List into ascending order, either using the natural ordering of its elements or a supplied Comparator; reverse, shuffle, and binarySearch for lists; and factory methods like unmodifiableList, which wraps a collection in a read-only view, and emptyList, singletonList, and similar convenience methods for creating small, immutable collections without any boilerplate.
+
+
+Java: Exception Handling
+
+Source: https://docs.oracle.com/javase/tutorial/essential/exceptions/
+
+What Is an Exception
+
+The term exception is shorthand for exceptional event. Formally, an exception is an event that occurs during the execution of a program that disrupts the normal flow of the program's instructions. When an error occurs inside a method, the method creates an object called an exception object that carries information about the error, including the type of error and the state of the program at the moment the error occurred. Creating this exception object and handing it to the runtime system is called throwing an exception.
+
+How the Runtime Finds a Handler
+
+After an exception is thrown, the runtime system attempts to find a suitable place to handle it. It searches the call stack, which is the ordered list of methods that had been called to reach the method where the error occurred, in reverse order, starting from the method where the exception happened and working backward through each caller. This search continues until it finds an appropriate exception handler, which is a block of code capable of handling that particular kind of exception.
+
+Matching and Catching
+
+A handler is considered appropriate only if the type of the thrown exception object matches the type the handler is written to catch. Once the runtime finds a matching handler, it passes the exception object to it; this is what is meant by saying the handler catches the exception. If the runtime searches every method on the call stack and never finds a matching handler, the program terminates.
+
+Advantages of Using Exceptions
+
+Handling errors through exceptions offers real advantages over older error-management techniques, such as returning special error codes from methods. Exceptions separate error-handling code from the normal flow of the program, since a try block containing the risky code stays uncluttered by scattered error checks, while all the recovery logic lives together in one or more catch blocks. Exceptions also propagate errors up the call stack automatically, so a method does not need to check and rethrow error codes at every level; and because every thrown object carries type information, the compiler and runtime can group and differentiate kinds of errors far more precisely than a handful of numeric codes ever could.
+
+The Three Kinds of Exceptions
+
+Java recognizes three broad categories of throwable conditions. Checked exceptions are conditions that a well-written application should anticipate and recover from; the compiler enforces handling of checked exceptions by requiring them to be either caught or declared in a method's throws clause. Errors represent serious problems that a reasonable application should not try to catch, typically conditions external to the application, such as running out of memory. Runtime exceptions, which include things like invalid casts or null pointer dereferences, usually indicate programming bugs, such as violating an API's contract, and are not checked by the compiler.
+
+Try, Catch, and Finally
+
+The basic mechanism for handling exceptions in Java code is the try-catch-finally construct. Code that might throw an exception is placed in a try block. One or more catch blocks follow, each specifying the type of exception it can handle; when an exception is thrown inside the try block, control transfers to the first catch block whose type matches. An optional finally block can follow the catch blocks, and its code always runs whether or not an exception was thrown, making it the natural place to release resources such as open files or network connections. A try-with-resources statement offers a more concise alternative for resources that implement AutoCloseable, automatically closing them when the try block finishes.
+
+Multi-Catch Blocks
+
+A single catch clause can handle more than one exception type by separating the types with a pipe character, for example catch (IOException | SQLException e). This is useful when two or more exception types require identical handling logic, since it avoids duplicating the same catch body once per type. The types listed in a multi-catch clause cannot be related by subclassing, since listing both a superclass and one of its subclasses in the same multi-catch clause would be redundant and is flagged as a compile-time error.
+
+Try-With-Resources
+
+Introduced to simplify resource management, the try-with-resources statement declares one or more resources inside parentheses immediately after the try keyword, where each resource must implement the AutoCloseable interface. When the try block finishes, whether normally or because of an exception, every declared resource is closed automatically in the reverse of the order it was opened, without requiring an explicit finally block to do so. This eliminates an entire class of resource-leak bugs that used to arise from forgetting to close a file or a network connection in a finally block, or from writing that finally block incorrectly.
+
+Chained Exceptions
+
+An exception can be constructed with another exception as its cause, commonly done when catching a low-level exception and wrapping it in a higher-level, more application-meaningful exception type before rethrowing it. The original exception remains accessible through the wrapping exception's getCause method, preserving the full underlying stack trace for debugging even though calling code only needs to handle the higher-level exception type. This pattern, often called exception chaining, keeps error-handling code focused on meaningful application-level exception types while still retaining the low-level diagnostic detail needed to track down the true root cause later.
+
+Creating Custom Exception Classes
+
+Applications frequently define their own exception types by extending Exception, for a checked exception, or RuntimeException, for an unchecked one. A custom exception class typically provides constructors that accept a descriptive message, and optionally a cause, both of which are simply passed through to the corresponding superclass constructor. Defining domain-specific exception types, rather than reusing generic ones, lets calling code catch and react to precisely the failure conditions that matter to that particular application, rather than having to inspect a generic exception's message string to figure out what actually went wrong.
+
+Unreachable Statements and the finally Block
+
+Because the finally block always executes on the way out of a try statement, code inside it will run even if the try or catch block executes a return statement, and a return or throw inside finally itself will override whatever the try or catch block was about to do. For this reason, the Java tutorials and most style guides recommend against placing a return statement inside a finally block, since doing so can silently swallow an exception that was in the process of propagating, replacing it with whatever the finally block returns instead, which is rarely the intended behavior.
+
+Checked Exceptions and the throws Clause
+
+Any method that might throw a checked exception, either directly with a throw statement or indirectly by calling another method that can throw one, must either catch that exception itself or declare it in its own throws clause, passing the responsibility for handling it up to its caller. This compiler-enforced requirement is unique to checked exceptions; unchecked exceptions, meaning runtime exceptions and errors, can be thrown from anywhere without ever being declared, since the compiler does not track them the same way. Declaring accurate throws clauses is part of a method's public contract, letting callers see at a glance which failure conditions they need to plan for without having to read the method's full implementation.
+
+Stack Traces
+
+When an exception is created, the Java runtime automatically captures a stack trace, a snapshot of the call stack at that exact moment, recording every method that was active and the line number it was executing. The printStackTrace method writes this information to the standard error stream, and it is one of the most valuable pieces of information available while debugging, since it shows not just what went wrong but the exact chain of method calls that led to the failure. When an exception is wrapped and rethrown as the cause of a new exception, the original stack trace is preserved and remains accessible through getCause, so no diagnostic detail is lost even as the exception is translated into a different, more meaningful type further up the call stack.
+
+Best Practices for Exception Handling
+
+Common guidance in the Java community includes catching only the specific exception types a piece of code can genuinely recover from, rather than broadly catching Exception or Throwable, which risks silently swallowing serious problems the code was never designed to handle. It is also considered poor practice to catch an exception purely to log it and then do nothing else, since that both hides the failure from callers who might have handled it correctly and adds no real value over letting the exception propagate. Using specific, well-named custom exception types, documenting a method's thrown exceptions clearly, and always cleaning up resources with try-with-resources rather than manual finally blocks are all widely recommended habits for writing exception-handling code that stays maintainable as an application grows.

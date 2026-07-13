@@ -1,0 +1,304 @@
+Database Design - Schema and Normalization Fundamentals
+
+Introduction
+
+Database design is the process of creating a logical structure for storing and accessing data efficiently. Good database design prevents data anomalies, ensures data integrity, supports efficient queries, and makes systems maintainable and scalable. Poor design leads to data redundancy, inconsistencies, and performance problems.
+
+Core Database Design Concepts
+
+Entities: Things you store data about (users, products, orders)
+Attributes: Properties of entities (name, email, price)
+Relations: Connections between entities (user has many orders)
+Keys: Identifiers ensuring uniqueness and relationships
+
+A well-designed database captures these concepts clearly through tables and relationships.
+
+Normalization - Organizing Data
+
+Database normalization is a design technique for organizing tables to reduce redundancy and prevent anomalies. Normalization involves progressive steps (normal forms) that progressively remove different types of redundancy.
+
+First Normal Form (1NF) - Atomic Values
+
+Requirement: Every cell contains a single, indivisible value. No repeating groups or arrays in cells.
+
+Poor design (violates 1NF):
+
+Table: users
+id | name | hobbies
+1  | John | reading, gaming, cooking
+2  | Jane | swimming
+
+Problem: hobbies column contains multiple values. Querying specific hobbies is difficult.
+
+Better design (1NF compliant):
+
+Table: users
+id | name
+1  | John
+2  | Jane
+
+Table: user_hobbies
+user_id | hobby
+1       | reading
+1       | gaming
+1       | cooking
+2       | swimming
+
+Now each cell has a single value. Querying hobbies is easy.
+
+Second Normal Form (2NF) - No Partial Dependencies
+
+Requirement: Table must be in 1NF, and non-key attributes must depend on the entire primary key, not just part of it.
+
+Poor design (violates 2NF):
+
+Table: student_courses
+student_id | course_id | course_name | instructor
+1          | 101       | Mathematics | Dr. Smith
+1          | 102       | Physics     | Dr. Jones
+2          | 101       | Mathematics | Dr. Smith
+
+Problem: course_name and instructor depend on course_id only, not on the combination of student_id and course_id. If Dr. Smith's name changes, you must update multiple rows.
+
+Better design (2NF compliant):
+
+Table: student_courses
+student_id | course_id
+1          | 101
+1          | 102
+2          | 101
+
+Table: courses
+course_id | course_name | instructor
+101       | Mathematics | Dr. Smith
+102       | Physics     | Dr. Jones
+
+Now each non-key attribute depends on the full primary key.
+
+Third Normal Form (3NF) - No Transitive Dependencies
+
+Requirement: Table must be in 2NF, and non-key attributes must not depend on other non-key attributes.
+
+Poor design (violates 3NF):
+
+Table: orders
+order_id | customer_id | customer_name | city | zip_code
+1        | 100         | John Doe      | NYC  | 10001
+2        | 101         | Jane Smith    | LA   | 90001
+3        | 100         | John Doe      | NYC  | 10001
+
+Problem: customer_name, city, and zip_code depend on customer_id (non-key attribute), not directly on order_id (the key). If John's address changes, you must update multiple order rows.
+
+Better design (3NF compliant):
+
+Table: orders
+order_id | customer_id
+1        | 100
+2        | 101
+3        | 100
+
+Table: customers
+customer_id | name      | city | zip_code
+100         | John Doe  | NYC  | 10001
+101         | Jane Smith| LA   | 90001
+
+Now non-key attributes depend only on the primary key. Changes to customer info happen in one place.
+
+Key Normalization Benefits
+
+Eliminates data anomalies:
+- Insertion anomalies: Can't insert data without complete information
+- Update anomalies: Must update redundant data in multiple places
+- Deletion anomalies: Deleting a row loses unrelated information
+
+Reduces storage: No data duplication
+Ensures consistency: Single source of truth for each fact
+Simplifies maintenance: Changes affect fewer rows
+Supports efficient queries: Proper structure enables fast lookups
+
+Denormalization - When to Break Rules
+
+Normalization improves data integrity but can hurt performance due to joins. Sometimes you intentionally denormalize to optimize queries, trading redundancy for speed.
+
+Denormalization use cases:
+
+Reporting queries: Report queries often denormalize data into data warehouses
+High-traffic read operations: Duplicate data to avoid expensive joins
+Caching: Store aggregated results to avoid recomputing
+Search: Duplicate fields for full-text search indexes
+
+Example denormalization:
+
+Normalized (requires join):
+```sql
+SELECT orders.total, customers.name
+FROM orders
+JOIN customers ON orders.customer_id = customers.id
+```
+
+Denormalized (duplicate data):
+```sql
+SELECT order_id, total, customer_name FROM orders
+```
+
+Trades storage and update complexity for read performance.
+
+Database Keys
+
+Primary Key: Uniquely identifies each row in a table.
+
+```sql
+CREATE TABLE users (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(255)
+);
+```
+
+Auto-incrementing integer is common. UUIDs are also used.
+
+Foreign Key: References a primary key in another table, creating relationships.
+
+```sql
+CREATE TABLE orders (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  customer_id INT,
+  total DECIMAL(10,2),
+  FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+```
+
+Enforces referential integrity (can't have order for non-existent customer).
+
+Composite Key: Primary key using multiple columns.
+
+```sql
+CREATE TABLE student_enrollments (
+  student_id INT,
+  course_id INT,
+  enrolled_date DATE,
+  PRIMARY KEY (student_id, course_id)
+);
+```
+
+Prevents duplicate enrollments (same student in same course).
+
+Indexes: Not a key type, but organized data for fast lookups.
+
+```sql
+CREATE INDEX idx_email ON users(email);
+CREATE UNIQUE INDEX idx_ssn ON employees(ssn);
+```
+
+Relationships
+
+One-to-Many: Most common. One entity relates to multiple of another.
+
+```
+One user has many orders
+users table -> orders table (foreign key customer_id)
+```
+
+Many-to-Many: Multiple of one entity relate to multiple of another. Requires a junction table.
+
+```
+Many students enroll in many courses
+students -> enrollments <- courses (junction table)
+```
+
+One-to-One: One entity relates to exactly one of another.
+
+```
+One user has one profile
+users.id -> profiles.user_id (UNIQUE constraint)
+```
+
+Self-Referencing: Entity relates to itself.
+
+```
+Employees have a manager (also an employee)
+employees.manager_id references employees.id
+```
+
+Table Design Example
+
+Designing an e-commerce database:
+
+Tables needed:
+- users: Customer information
+- products: Item catalog
+- orders: Customer orders
+- order_items: Products in each order (many-to-many)
+- categories: Product categories
+- reviews: Customer product reviews
+
+Users table:
+```sql
+CREATE TABLE users (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Products table:
+```sql
+CREATE TABLE products (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  price DECIMAL(10,2) NOT NULL,
+  category_id INT,
+  stock INT DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (category_id) REFERENCES categories(id)
+);
+```
+
+Orders table:
+```sql
+CREATE TABLE orders (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  user_id INT NOT NULL,
+  total DECIMAL(10,2),
+  status VARCHAR(50) DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+```
+
+Order_items junction table (many-to-many):
+```sql
+CREATE TABLE order_items (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  order_id INT NOT NULL,
+  product_id INT NOT NULL,
+  quantity INT NOT NULL,
+  price_at_purchase DECIMAL(10,2),
+  FOREIGN KEY (order_id) REFERENCES orders(id),
+  FOREIGN KEY (product_id) REFERENCES products(id)
+);
+```
+
+Design Principles
+
+Avoid storing derived data: Don't store order_total if it can be calculated from order_items
+Use appropriate data types: Don't store numbers as text
+Set NOT NULL where required: Prevent incomplete data
+Use constraints: Enforce business rules at database level
+Keep tables focused: Each table represents one entity type
+Use meaningful names: Clear names make design self-documenting
+Document relationships: Show how tables connect
+Plan for growth: Design supports future data requirements
+
+Common Design Mistakes
+
+Over-normalization: Too many tables, excessive joins, poor performance
+Under-normalization: Data duplication, anomalies, consistency issues
+No constraints: Data integrity not enforced
+Wrong data types: Performance issues, overflow problems
+No indexes: Queries slow for large datasets
+Ignoring relationships: Orphaned records, referential integrity issues
+
+A well-designed database is the foundation of reliable, performant applications. Proper design upfront prevents major refactoring later.

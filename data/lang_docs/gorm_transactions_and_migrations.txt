@@ -1,0 +1,168 @@
+GORM: Transactions
+
+Source: https://gorm.io/docs/transactions.html
+
+Disabling Default Transactions
+
+GORM automatically wraps write operations (create, update, delete) in a database transaction to guarantee data consistency, even for a single statement. You can disable this feature during initialization to gain roughly a 30 percent performance improvement, if you're confident your application doesn't need that extra safety net for single-statement writes:
+
+db, err := gorm.Open(sqlite.Open("gorm.db"), &gorm.Config{
+  SkipDefaultTransaction: true,
+})
+
+// Or disable it for just one session
+tx := db.Session(&Session{SkipDefaultTransaction: true})
+
+Using db.Transaction()
+
+GORM provides a convenient method for executing a group of operations within a single transaction. The callback function you supply receives a transaction handle; returning an error from the callback triggers an automatic rollback, while returning nil commits all the changes made during the callback:
+
+db.Transaction(func(tx *gorm.DB) error {
+  if err := tx.Create(&Animal{Name: "Giraffe"}).Error; err != nil {
+    // return any error will rollback
+    return err
+  }
+
+  if err := tx.Create(&Animal{Name: "Lion"}).Error; err != nil {
+    return err
+  }
+
+  // return nil will commit the whole transaction
+  return nil
+})
+
+This pattern is important because it guarantees the rollback happens correctly even if a panic occurs partway through — GORM recovers from panics inside the callback and still rolls back cleanly, so you don't leave a half-committed transaction hanging around.
+
+Generics API Approach
+
+For newer code using GORM's generics-based API, the same transactional pattern applies, just using gorm.G[T] instead of a plain tx.Create call:
+
+ctx := context.Background()
+err := db.Transaction(func(tx *gorm.DB) error {
+  if err := gorm.G[Animal](tx).Create(ctx, &Animal{Name: "Giraffe"}); err != nil {
+    return err
+  }
+  if err := gorm.G[Animal](tx).Create(ctx, &Animal{Name: "Lion"}); err != nil {
+    return err
+  }
+  return nil
+})
+
+Nested Transactions
+
+GORM supports nested transactions, meaning you can wrap a db.Transaction call inside another one. Changes made in a nested (inner) transaction scope can be rolled back independently, without affecting the changes committed in the outer transaction, which is useful when a larger operation has an optional inner step that's allowed to fail without invalidating the whole outer operation.
+
+db.Transaction(func(tx *gorm.DB) error {
+  tx.Create(&user1)
+
+  tx.Transaction(func(tx2 *gorm.DB) error {
+    tx2.Create(&user2)
+    return errors.New("rollback user2") // only user2 is rolled back
+  })
+
+  return nil // user1 is still committed
+})
+
+Manual Transaction Control
+
+For finer-grained control than the callback-based API provides, you can start, commit, and roll back a transaction manually with Begin, Commit, and Rollback:
+
+tx := db.Begin()
+
+// do some database operations in the transaction (use 'tx' from this point, not 'db')
+tx.Create(&user)
+
+// check for errors and rollback OR commit
+if someCondition {
+    tx.Rollback()
+} else {
+    tx.Commit()
+}
+
+Manual control is useful when the decision to commit or roll back depends on logic that spans multiple function calls or that doesn't fit neatly into a single callback closure.
+
+SavePoint and RollbackTo
+
+Within a manually-managed transaction, you can create intermediate checkpoints with SavePoint and selectively revert to one of them with RollbackTo, without discarding the entire transaction:
+
+tx := db.Begin()
+
+tx.Create(&user1)
+
+tx.SavePoint("sp1")
+tx.Create(&user2)
+tx.RollbackTo("sp1") // rolls back user2, user1 remains staged
+
+tx.Commit() // commits user1 only
+
+This is particularly useful for implementing "best effort" batch operations, where you want to attempt several related inserts and discard just the ones that fail validation partway through, while still committing everything that succeeded before the failure point.
+
+Nested Transaction Savepoints via SkipDefaultTransaction
+
+Because GORM already wraps every write in an implicit transaction by default, nesting db.Transaction calls without SkipDefaultTransaction enabled effectively creates a chain of savepoints under the hood. Understanding this default behavior helps explain why disabling default transactions (SkipDefaultTransaction: true) changes not just performance characteristics, but also how nested Transaction calls behave with respect to savepoint creation.
+
+
+GORM: Auto Migration
+
+Source: https://gorm.io/docs/migration.html
+
+AutoMigrate
+
+GORM's AutoMigrate function automatically keeps your database schema in sync with your Go struct definitions. According to the documentation, it "will create tables, missing foreign keys, constraints, columns and indexes." You can pass one or more model structs, and GORM will inspect their fields and tags to figure out what schema changes are needed:
+
+db.AutoMigrate(&User{})
+db.AutoMigrate(&User{}, &Product{}, &Order{})
+
+// pass table options through to the underlying CREATE TABLE statement
+db.Set("gorm:table_options", "ENGINE=InnoDB").AutoMigrate(&User{})
+
+Important Limitation
+
+AutoMigrate is intentionally conservative: it "won't delete unused columns to protect your data." That means if you remove a field from a struct, the corresponding column stays in the database — AutoMigrate only ever adds things, it never drops anything, which protects you from accidentally destroying data because of a typo or a refactor in your Go code. If you genuinely need to drop a column, you must do so explicitly through the Migrator interface described below.
+
+Foreign Keys During Migration
+
+Foreign key constraints are created automatically by AutoMigrate based on your association tags, but this can be disabled globally during initialization if your database setup or hosting provider doesn't support them, or if you want to manage referential integrity purely at the application level:
+
+db, err := gorm.Open(sqlite.Open("gorm.db"), &gorm.Config{
+  DisableForeignKeyConstraintWhenMigrating: true,
+})
+
+The Migrator Interface
+
+GORM provides a Migrator interface offering unified migration APIs across different supported databases, so the same Go code works whether you're running on MySQL, PostgreSQL, SQLite, or SQL Server, even though the underlying DDL syntax differs between them.
+
+Table Operations
+
+db.Migrator().CreateTable(&User{})
+db.Migrator().HasTable(&User{})
+db.Migrator().DropTable(&User{})
+db.Migrator().RenameTable(&User{}, &UserInfo{})
+
+HasTable returns a boolean so you can conditionally create a table only if it doesn't already exist, which is a common guard in setup scripts that may run more than once.
+
+Column Operations
+
+db.Migrator().AddColumn(&User{}, "Name")
+db.Migrator().DropColumn(&User{}, "Name")
+db.Migrator().AlterColumn(&User{}, "Name")
+db.Migrator().HasColumn(&User{}, "Name")
+db.Migrator().RenameColumn(&User{}, "Name", "NewName")
+
+These methods take the struct field name (not the raw database column name), and GORM resolves it to the correct column using the same naming convention logic it uses everywhere else, respecting any column: tag override you've set on the field.
+
+Index and Constraint Operations
+
+db.Migrator().CreateIndex(&User{}, "Name")
+db.Migrator().DropIndex(&User{}, "Name")
+db.Migrator().HasIndex(&User{}, "Name")
+
+db.Migrator().CreateConstraint(&User{}, "name_checker")
+db.Migrator().DropConstraint(&User{}, "name_checker")
+db.Migrator().HasConstraint(&User{}, "name_checker")
+
+Index and constraint names here correspond to whatever name you assigned via struct tags, such as gorm:"index:idx_name" or gorm:"check:name_checker,name <> 'jinzhu'".
+
+Best Practices for Production Migrations
+
+AutoMigrate is convenient during development and for straightforward schema evolution, but many teams pair it with a dedicated migration tool (or hand-written SQL migration files) once an application reaches production, because AutoMigrate has no concept of rolling back a migration, no way to express complex multi-step data transformations safely, and no migration history log the way tools like golang-migrate or Atlas provide. A common pattern is to run AutoMigrate freely in local development and CI test databases, while using hand-authored, reviewed migration scripts for anything touching a production database with real user data.

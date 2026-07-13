@@ -1,0 +1,488 @@
+Laravel: Authentication
+
+Source: https://laravel.com/docs/12.x/authentication
+
+Introduction
+
+Laravel ships with a full authentication system out of the box, built around guards and providers defined in config/auth.php. Guards define how users are authenticated for each request (for example, using a session and cookie for web requests), while providers define how users are retrieved from persistent storage (typically Eloquent, backed by a database).
+
+Rather than authoring authentication from scratch, most applications begin with one of Laravel's official starter kits, which scaffold registration, login, password reset, and email verification screens and controllers for you, wired against Laravel's authentication services underneath.
+
+Retrieving the Authenticated User
+
+Once a user is authenticated, you can access the currently authenticated user through the Auth facade:
+
+use Illuminate\Support\Facades\Auth;
+
+// Get the currently authenticated user...
+$user = Auth::user();
+
+// Get the currently authenticated user's ID...
+$id = Auth::id();
+
+You may also access the authenticated user via an Illuminate\Http\Request instance, which is convenient inside a controller method since the request is already available:
+
+public function update(Request $request): RedirectResponse
+{
+    $user = $request->user();
+
+    // ...
+
+    return redirect('/profile');
+}
+
+Determining if the Current User is Authenticated
+
+Use the check method on the Auth facade to determine whether a request came from an authenticated user:
+
+use Illuminate\Support\Facades\Auth;
+
+if (Auth::check()) {
+    // The user is logged in...
+}
+
+Even though it's possible to check authentication via Auth::check, you will typically use a middleware to verify the user is authenticated before allowing access to certain routes and controllers, as described below.
+
+Protecting Routes
+
+Route middleware can be used to only allow authenticated users to access a given route. Laravel ships with an auth middleware, which references the Illuminate\Auth\Middleware\Authenticate class. Since this middleware is already registered in the application's HTTP kernel, all you need to do is attach it to a route definition:
+
+Route::get('/flights', function () {
+    // Only authenticated users may access this route...
+})->middleware('auth');
+
+Redirecting Unauthenticated Users
+
+When the auth middleware detects an unauthenticated user, it redirects the user to the login named route. You can modify this behavior using the redirectGuestsTo method in your application's bootstrap/app.php file:
+
+use Illuminate\Http\Request;
+
+->withMiddleware(function (Middleware $middleware) {
+    $middleware->redirectGuestsTo('/login');
+
+    // Using a closure...
+    $middleware->redirectGuestsTo(fn (Request $request) => route('login'));
+})
+
+Specifying a Guard
+
+When attaching the auth middleware to a route, you may also specify which guard should be used to authenticate the user, corresponding to one of the keys in the guards array of your auth.php configuration file:
+
+Route::get('/flights', function () {
+    // Only authenticated users may access this route...
+})->middleware('auth:admin');
+
+Login Throttling
+
+When using Laravel's built-in starter kits, rate limiting is automatically applied to login attempts. By default, a user will not be able to log in for one minute if they fail to provide the correct credentials after several attempts, throttled uniquely to the user's username / email address and their IP address, protecting against brute-force credential guessing.
+
+Manually Authenticating Users
+
+You are not required to use the authentication scaffolding included with Laravel's starter kits. If you choose not to use this scaffolding, you will need to manage user authentication using the Laravel authentication classes directly.
+
+Use the attempt method on the Auth facade, typically inside your login controller. The attempt method normally accepts an array of key / value pairs as its first argument:
+
+use Illuminate\Support\Facades\Auth;
+
+class LoginController extends Controller
+{
+    public function authenticate(Request $request): RedirectResponse
+    {
+        $credentials = $request->validate([
+            'email' => ['required', 'email'],
+            'password' => ['required'],
+        ]);
+
+        if (Auth::attempt($credentials)) {
+            $request->session()->regenerate();
+
+            return redirect()->intended('dashboard');
+        }
+
+        return back()->withErrors([
+            'email' => 'The provided credentials do not match our records.',
+        ])->onlyInput('email');
+    }
+}
+
+The attempt method will return true if authentication was successful. Otherwise, false will be returned. Note that the regenerate method on session should be called after successfully authenticating the user, in order to prevent session fixation vulnerabilities.
+
+Specifying Additional Conditions
+
+You may also add extra query conditions to the authentication query in addition to the user's email and password. To accomplish this, we may simply add the query conditions to the array passed to the attempt method:
+
+if (Auth::attempt(['email' => $email, 'password' => $password, 'active' => 1])) {
+    // Authentication was successful...
+}
+
+Accessing Specific Guard Instances
+
+Via the Auth facade's guard method, you may specify which guard instance you would like to utilize when authenticating the user. This allows you to manage authentication for separate parts of your application using entirely separate authenticatable models or user tables:
+
+if (Auth::guard('admin')->attempt($credentials)) {
+    // ...
+}
+
+Remembering Users
+
+Many web applications provide a "remember me" checkbox on their login form. If you would like to provide "remember me" functionality in your application, you may pass a boolean value as the second argument to the attempt method:
+
+use Illuminate\Support\Facades\Auth;
+
+if (Auth::attempt(['email' => $email, 'password' => $password], $remember)) {
+    // The user is being remembered...
+}
+
+When this value is true, Laravel will keep the user authenticated indefinitely, or until they manually log out, using a long-lived cookie. Your users table must include the string remember_token column, which will be used to store the "remember me" token.
+
+Logging Out
+
+To manually log users out of your application, you may use the logout method on the Auth facade, which removes the authentication information from the user's session:
+
+use Illuminate\Support\Facades\Auth;
+
+Auth::logout();
+
+Invalidating Sessions on Other Devices
+
+Laravel also provides a mechanism for invalidating and "logging out" a user's sessions that are active on other devices without invalidating the session on their current device. This feature is typically utilized when a user is changing or updating their password, and you would like to invalidate sessions on other devices while keeping the current device authenticated.
+
+Password Confirmation
+
+While building your application, you may occasionally have actions that should require the user to confirm their password before the action is performed, or before the user is redirected to a sensitive area of the application. Laravel includes built-in middleware to make this process a breeze; implementing this feature will require you to define two routes: one to display a view asking the user to confirm their password, and another to confirm that the password is valid and redirect the user to their intended destination.
+
+HTTP Basic Authentication
+
+HTTP Basic Authentication provides a quick way to authenticate users of your application without setting up a dedicated login page. To get started, attach the auth.basic middleware to a route, and the Illuminate\Auth\Middleware\Authenticate middleware is shipped with the framework, so you do not need to define it:
+
+Route::get('/profile', function () {
+    // Only authenticated users may access this route...
+})->middleware('auth.basic');
+
+
+Laravel: Authorization — Gates and Policies
+
+Source: https://laravel.com/docs/12.x/authorization
+
+Introduction
+
+In addition to authentication, Laravel provides a simple way to authorize user actions against a given resource. Even though a user is authenticated, they may not be authorized to update or delete certain Eloquent models or database records managed by your application. Laravel's authorization features provide an easy, organized way of managing these types of checks.
+
+Laravel provides two primary ways of authorizing actions: gates and policies. Think of gates and policies like routes and controllers. Gates provide a simple, closure-based approach to authorization, while policies, like controllers, group logic around a particular model or resource. Gates are most applicable to actions that are not related to any model, such as viewing an administrator dashboard, while policies should be used when you wish to authorize an action for a particular model or resource.
+
+Writing Gates
+
+Gates are closures that determine if a user is authorized to perform a given action. Typically, gates are defined within the boot method of App\Providers\AppServiceProvider using the Gate facade. Gates always receive a user instance as their first argument and may optionally receive additional arguments such as a relevant Eloquent model:
+
+use App\Models\Post;
+use App\Models\User;
+use Illuminate\Support\Facades\Gate;
+
+public function boot(): void
+{
+    Gate::define('update-post', function (User $user, Post $post) {
+        return $user->id === $post->user_id;
+    });
+}
+
+Gates may also be defined using a class callback array, which keeps the closure logic out of the service provider:
+
+use App\Policies\PostPolicy;
+
+Gate::define('update-post', [PostPolicy::class, 'update']);
+
+Authorizing Actions via Gates
+
+To authorize an action, use the allows or denies methods provided by the Gate facade. You are not required to pass the currently authenticated user — Laravel automatically passes the user into the gate closure:
+
+use Illuminate\Support\Facades\Gate;
+
+if (! Gate::allows('update-post', $post)) {
+    abort(403);
+}
+
+To check on behalf of a user other than the currently authenticated one, use forUser:
+
+if (Gate::forUser($user)->allows('update-post', $post)) {
+    // The user can update the post...
+}
+
+You may authorize multiple actions at once with any or none:
+
+if (Gate::any(['update-post', 'delete-post'], $post)) {
+    // The user can update or delete the post...
+}
+
+To automatically throw an AuthorizationException (converted to a 403 response) when unauthorized, use authorize:
+
+Gate::authorize('update-post', $post);
+// The action is authorized...
+
+Gate Responses
+
+Instead of a simple boolean, a gate can return an Illuminate\Auth\Access\Response instance carrying a message:
+
+use Illuminate\Auth\Access\Response;
+
+Gate::define('edit-settings', function (User $user) {
+    return $user->isAdmin
+        ? Response::allow()
+        : Response::deny('You must be an administrator.');
+});
+
+Even with a Response returned, Gate::allows still yields a plain boolean, but Gate::inspect returns the full response so you can read its message:
+
+$response = Gate::inspect('edit-settings');
+
+if ($response->allowed()) {
+    // authorized
+} else {
+    echo $response->message();
+}
+
+You can customize the HTTP status returned on denial with denyWithStatus, or use the denyAsNotFound convenience method to hide a resource's existence behind a 404 instead of revealing a 403:
+
+Response::denyWithStatus(404);
+Response::denyAsNotFound();
+
+Intercepting Gate Checks
+
+Sometimes you want to grant all abilities to a specific user, such as an administrator. The before method defines a closure run before all other authorization checks:
+
+Gate::before(function (User $user, string $ability) {
+    if ($user->isAdministrator()) {
+        return true;
+    }
+});
+
+If before returns a non-null result, that becomes the authorization result. The after method runs after all other checks, and its return value only overrides the result if the gate or policy itself returned null.
+
+Inline Authorization
+
+For a one-off check without defining a dedicated gate, use Gate::allowIf or Gate::denyIf:
+
+Gate::allowIf(fn (User $user) => $user->isAdministrator());
+Gate::denyIf(fn (User $user) => $user->banned());
+
+If the check fails or no user is authenticated, Laravel automatically throws an AuthorizationException.
+
+Creating Policies
+
+Policies are classes that organize authorization logic around a particular model. If your application is a blog, you might have a Post model and a corresponding PostPolicy. Generate one with:
+
+php artisan make:policy PostPolicy
+
+To scaffold example methods for viewing, creating, updating, and deleting the resource, pass --model:
+
+php artisan make:policy PostPolicy --model=Post
+
+Registering Policies
+
+By default, Laravel automatically discovers policies as long as the model and policy follow standard naming conventions — a User model corresponds to a UserPolicy. You may also register policies manually in AppServiceProvider's boot method:
+
+use App\Models\Order;
+use App\Policies\OrderPolicy;
+use Illuminate\Support\Facades\Gate;
+
+public function boot(): void
+{
+    Gate::policy(Order::class, OrderPolicy::class);
+}
+
+Writing Policy Methods
+
+Once registered, add a method per action. The update method receives a User and a Post instance, returning true or false:
+
+class PostPolicy
+{
+    public function update(User $user, Post $post): bool
+    {
+        return $user->id === $post->user_id;
+    }
+}
+
+If you used --model when generating the policy, it already contains viewAny, view, create, update, delete, restore, and forceDelete methods. All policies are resolved via the service container, so you can type-hint dependencies in the policy's constructor.
+
+Methods Without Models
+
+Some policy methods, most commonly create, only receive the authenticated user, since there's no existing model instance to check ownership against:
+
+public function create(User $user): bool
+{
+    return $user->role == 'writer';
+}
+
+Guest Users
+
+By default, all gates and policies return false for unauthenticated requests. To allow a check to run even for guests, type-hint the user argument as nullable:
+
+public function update(?User $user, Post $post): bool
+{
+    return $user?->id === $post->user_id;
+}
+
+Policy Filters
+
+Define a before method on the policy itself to run before any other method on that policy, commonly used to grant administrators blanket access:
+
+public function before(User $user, string $ability): bool|null
+{
+    if ($user->isAdministrator()) {
+        return true;
+    }
+
+    return null;
+}
+
+Authorizing Actions Using Policies
+
+Via the User Model
+
+The User model includes can and cannot helper methods:
+
+public function update(Request $request, Post $post): RedirectResponse
+{
+    if ($request->user()->cannot('update', $post)) {
+        abort(403);
+    }
+
+    // Update the post...
+    return redirect('/posts');
+}
+
+For actions without models, pass the class name instead of an instance:
+
+if ($request->user()->cannot('create', Post::class)) {
+    abort(403);
+}
+
+Via the Gate Facade
+
+use Illuminate\Support\Facades\Gate;
+
+Gate::authorize('update', $post);
+// The current user can update the blog post...
+
+Via Middleware
+
+Laravel's can middleware alias can authorize a request before it ever reaches your controller:
+
+use App\Models\Post;
+
+Route::put('/post/{post}', function (Post $post) {
+    // ...
+})->middleware('can:update,post');
+
+Or, more conveniently:
+
+Route::put('/post/{post}', function (Post $post) {
+    // ...
+})->can('update', 'post');
+
+Via Blade Templates
+
+@can('update', $post)
+    <!-- The current user can update the post... -->
+@elsecan('create', App\Models\Post::class)
+    <!-- The current user can create new posts... -->
+@else
+    <!-- ... -->
+@endcan
+
+@cannot('update', $post)
+    <!-- The current user cannot update the post... -->
+@endcannot
+
+Supplying Additional Context
+
+You can pass an array as the second argument to authorization helpers, where the first element selects the policy/model and the remaining elements pass extra parameters into the policy method for additional context:
+
+public function update(User $user, Post $post, int $category): bool
+{
+    return $user->id === $post->user_id &&
+           $user->canUpdateCategory($category);
+}
+
+Gate::authorize('update', [$post, $request->category]);
+
+
+Laravel: Practical Gates and Policies Patterns
+
+Source: supplementary examples based on https://laravel.com/docs/12.x/authorization
+
+Combining Gates and Policies in One Application
+
+Most real Laravel applications use both gates and policies side by side rather than choosing exclusively one or the other. A typical split: gates handle actions unrelated to any specific model, such as viewing an admin dashboard or accessing a billing settings page, while policies handle per-resource actions like editing a specific post or deleting a specific comment.
+
+use Illuminate\Support\Facades\Gate;
+
+// Gate: no specific model involved
+Gate::define('view-admin-dashboard', function (User $user) {
+    return $user->isAdmin();
+});
+
+// Policy: tied to a specific Post model
+class PostPolicy
+{
+    public function update(User $user, Post $post): bool
+    {
+        return $user->id === $post->user_id || $user->isAdmin();
+    }
+}
+
+Testing Authorization Logic
+
+Because gates and policies are plain PHP closures and classes resolved through the container, they're straightforward to unit test in isolation, without needing to spin up an HTTP request:
+
+public function test_only_owner_can_update_post(): void
+{
+    $owner = User::factory()->create();
+    $otherUser = User::factory()->create();
+    $post = Post::factory()->for($owner)->create();
+
+    $this->assertTrue($owner->can('update', $post));
+    $this->assertFalse($otherUser->can('update', $post));
+}
+
+Authorization in API Resources
+
+For JSON APIs, authorization failures typically need to translate into a proper 403 JSON error response rather than a redirect, which is exactly what Gate::authorize and the can middleware already do automatically, since AuthorizationException is converted into an appropriate HTTP response by Laravel's exception handler regardless of whether the request expects HTML or JSON:
+
+Route::apiResource('posts', PostController::class);
+
+class PostController extends Controller
+{
+    public function update(Request $request, Post $post)
+    {
+        Gate::authorize('update', $post);
+
+        $post->update($request->validated());
+
+        return new PostResource($post);
+    }
+}
+
+Layering Policies with Middleware Groups
+
+Combining route groups, middleware, and policies together is a common way to enforce a consistent authorization rule across an entire resource without repeating the check in every controller method:
+
+Route::middleware(['auth'])->group(function () {
+    Route::resource('posts', PostController::class)
+        ->middleware('can:update,post')
+        ->only(['update', 'destroy']);
+});
+
+Authorization for Nested or Related Resources
+
+When an action depends on more than one model — for instance, updating a Comment that belongs to a specific Post, where only the Post's owner (not necessarily the Comment's author) is allowed to moderate it — supply the additional model as extra context to the policy method:
+
+public function moderate(User $user, Comment $comment, Post $post): bool
+{
+    return $user->id === $post->user_id;
+}
+
+Gate::authorize('moderate', [$comment, $post]);
+
+Avoiding Common Authorization Mistakes
+
+A frequent mistake is performing authorization checks only in a Blade template (via @can) without also checking on the server side inside the corresponding controller action — a client can submit a request directly, bypassing whatever the template conditionally rendered, so template-level checks should always be treated as a UI convenience layered on top of, never a substitute for, a genuine server-side authorization check inside the controller or route middleware that actually performs the mutation.

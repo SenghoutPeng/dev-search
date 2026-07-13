@@ -1,0 +1,367 @@
+Database Migrations - Schema Versioning and Evolution
+
+Introduction
+
+Database migrations are version-controlled, incremental changes to database schemas. Rather than manually modifying the database, migrations define schema changes in code that can be tracked, reviewed, and applied systematically. Migrations are essential for team collaboration, reproducibility, and managing schema changes across environments.
+
+What Are Migrations?
+
+Migrations are files containing SQL (or code) that modify the database schema:
+- Creating tables
+- Adding columns
+- Modifying constraints
+- Creating indexes
+- Removing tables or columns
+
+Each migration represents a discrete change and can be applied or rolled back.
+
+Example migration sequence:
+- 2025-01-01_create_users_table.sql
+- 2025-01-02_add_email_to_users.sql
+- 2025-01-03_create_posts_table.sql
+- 2025-01-04_add_index_on_user_id.sql
+
+Why Migrations Matter
+
+Track schema history like version control: Know how schema evolved over time
+
+Reproducibility: Recreate database structure in new environments (dev, staging, production)
+
+Team collaboration: Multiple developers can coordinate schema changes
+
+Rollback capability: Undo changes if something goes wrong
+
+Automation: Deploy schema changes with confidence through CI/CD
+
+Database parity: Ensure all environments have identical schema
+
+Migration Tools by Framework
+
+Django (Python):
+
+Django's ORM generates migrations automatically:
+
+```python
+# models.py
+class User(models.Model):
+  name = models.CharField(max_length=100)
+  email = models.EmailField()
+```
+
+Generate migration:
+```bash
+python manage.py makemigrations
+```
+
+Creates migration file:
+```python
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+  dependencies = []
+
+  operations = [
+    migrations.CreateModel(
+      name='User',
+      fields=[
+        ('id', models.AutoField(primary_key=True)),
+        ('name', models.CharField(max_length=100)),
+        ('email', models.EmailField()),
+      ],
+    ),
+  ]
+```
+
+Apply migration:
+```bash
+python manage.py migrate
+```
+
+Laravel (PHP):
+
+Laravel uses migrations with Artisan commands:
+
+```bash
+php artisan make:migration create_users_table
+```
+
+Creates migration file:
+```php
+<?php
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+class CreateUsersTable extends Migration {
+  public function up() {
+    Schema::create('users', function (Blueprint $table) {
+      $table->id();
+      $table->string('name');
+      $table->string('email')->unique();
+      $table->timestamps();
+    });
+  }
+
+  public function down() {
+    Schema::dropIfExists('users');
+  }
+}
+```
+
+Apply migrations:
+```bash
+php artisan migrate
+```
+
+Rollback latest:
+```bash
+php artisan migrate:rollback
+```
+
+Spring Boot (Java):
+
+Spring uses Flyway or Liquibase for migrations.
+
+With Flyway, create SQL files in src/main/resources/db/migration/:
+
+```sql
+-- V1__Create_users_table.sql
+CREATE TABLE users (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(100) NOT NULL UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Flyway automatically applies versioned migrations on application startup.
+
+Go (no standard):
+
+Go has no built-in migration system. Popular choices: golang-migrate, sqlc.
+
+With golang-migrate:
+```bash
+migrate create -ext sql -dir db/migrations -seq create_users_table
+```
+
+Creates up/down migration files:
+```sql
+-- db/migrations/000001_create_users_table.up.sql
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(100) NOT NULL UNIQUE
+);
+
+-- db/migrations/000001_create_users_table.down.sql
+DROP TABLE users;
+```
+
+Apply migrations:
+```bash
+migrate -path db/migrations -database postgres://... up
+```
+
+Migration Best Practices
+
+Write up and down migrations: Always define rollback logic.
+
+```python
+class Migration(migrations.Migration):
+  operations = [
+    migrations.CreateModel(name='User', ...),
+  ]
+
+  # Implicit down: removes table
+```
+
+Keep migrations small and focused: One logical change per migration.
+
+Good: Create table, add column, create index (separate migrations)
+Bad: Create table AND modify schema AND create views in one migration
+
+Make migrations reversible: Avoid operations that destroy data irreversibly.
+
+Destructive without safety:
+```sql
+ALTER TABLE users DROP COLUMN email;  -- Data lost
+```
+
+Safer approach:
+```sql
+-- Migration 1: Add email_backup column
+ALTER TABLE users ADD COLUMN email_backup VARCHAR(255);
+UPDATE users SET email_backup = email;
+
+-- Migration 2 (later): Drop if confirmed no longer needed
+ALTER TABLE users DROP COLUMN email;
+```
+
+Test migrations: Ensure up and down migrations work correctly.
+
+Use zero-downtime migration strategies: For production with zero downtime required.
+
+```sql
+-- Strategy 1: Add column with default, backfill, remove default
+-- Step 1: Add with default
+ALTER TABLE users ADD COLUMN status VARCHAR(20) DEFAULT 'active';
+
+-- Step 2: Backfill existing rows
+UPDATE users SET status = 'active' WHERE status IS NULL;
+
+-- Step 3: Remove default if not needed
+ALTER TABLE users ALTER COLUMN status DROP DEFAULT;
+```
+
+Version control migrations: Commit migration files with application code.
+
+Document migrations: Add comments explaining non-obvious changes.
+
+```sql
+-- Add status column to track user state (active, inactive, suspended)
+-- Default to 'active' for existing users
+ALTER TABLE users ADD COLUMN status VARCHAR(20) DEFAULT 'active';
+```
+
+Use transactions: Wrap schema changes in transactions (if database supports).
+
+```sql
+BEGIN;
+  ALTER TABLE users ADD COLUMN phone VARCHAR(20);
+  CREATE INDEX idx_phone ON users(phone);
+COMMIT;
+```
+
+Avoid long locks: Schema changes that lock tables cause downtime.
+
+```sql
+-- BAD: Locks table while index builds
+ALTER TABLE users ADD COLUMN email VARCHAR(100) NOT NULL;
+
+-- BETTER: Non-blocking index creation (PostgreSQL, MySQL 8.0+)
+ALTER TABLE users ADD COLUMN email VARCHAR(100) DEFAULT '' NOT NULL;
+COMMIT;
+
+-- Later, create index non-blocking
+CREATE INDEX CONCURRENTLY idx_email ON users(email);
+```
+
+Schema Change Patterns
+
+Adding a required column to existing table:
+
+Strategy: Add nullable, backfill, then add NOT NULL
+
+```sql
+-- Step 1: Add nullable
+ALTER TABLE users ADD COLUMN age INT;
+
+-- Step 2: Backfill with default
+UPDATE users SET age = 0 WHERE age IS NULL;
+
+-- Step 3: Add constraint
+ALTER TABLE users ALTER COLUMN age SET NOT NULL;
+```
+
+Renaming a column:
+
+Strategy: Create new column, backfill, drop old
+
+```sql
+-- Step 1: Create new column
+ALTER TABLE users ADD COLUMN display_name VARCHAR(255);
+
+-- Step 2: Backfill
+UPDATE users SET display_name = name;
+
+-- Step 3: Drop old column (after confirming no code uses it)
+ALTER TABLE users DROP COLUMN name;
+```
+
+Changing column type:
+
+Strategy: Create new column, backfill with conversion, drop old
+
+```sql
+-- Changing email from VARCHAR(100) to VARCHAR(255)
+
+-- Step 1: Create new column
+ALTER TABLE users ADD COLUMN email_new VARCHAR(255);
+
+-- Step 2: Copy data
+UPDATE users SET email_new = email;
+
+-- Step 3: Drop old, rename new
+ALTER TABLE users DROP COLUMN email;
+ALTER TABLE users RENAME COLUMN email_new TO email;
+```
+
+Creating index on large table:
+
+Strategy: Create non-blocking index
+
+```sql
+-- PostgreSQL
+CREATE INDEX CONCURRENTLY idx_email ON users(email);
+
+-- MySQL 8.0+
+ALTER TABLE users ADD INDEX idx_email(email), ALGORITHM=INPLACE, LOCK=NONE;
+```
+
+Migration Workflows
+
+Local Development:
+1. Modify models/schema
+2. Generate migration
+3. Test migration
+4. Commit migration file
+
+Team Collaboration:
+1. Pull latest migrations
+2. Run `migrate` to apply
+3. Develop features
+4. Create new migrations
+5. Push migrations with code
+
+Production Deployment:
+1. Apply migrations (before or after code deploy depending on strategy)
+2. Monitor for issues
+3. Keep rollback procedure ready
+
+Common Migration Mistakes
+
+Non-reversible migrations: Can't rollback without manual intervention
+
+Not testing rollbacks: Migrations work forward but fail backward
+
+Long-running migrations: Lock tables, cause downtime
+
+Destructive changes without backup: Data lost forever
+
+Not coordinating with team: Multiple migrations conflict
+
+Incomplete migrations: Create index but forget primary key
+
+Hardcoding values: Migrations should be generic
+
+Not documenting complex changes: Future developers confused
+
+Managing Large Databases
+
+For huge tables, breaking migrations into smaller steps prevents long locks:
+
+```python
+# Instead of one massive UPDATE:
+UPDATE huge_table SET new_field = old_field;
+
+# Do smaller batches:
+for batch_id in range(0, total_rows, batch_size):
+  UPDATE huge_table
+  SET new_field = old_field
+  WHERE id >= batch_id AND id < batch_id + batch_size;
+```
+
+Parallel migration execution on read replicas can catch issues before production.
+
+Migrations are how teams manage schema changes reliably. Proper migration practices prevent downtime, data loss, and coordination issues in team environments.

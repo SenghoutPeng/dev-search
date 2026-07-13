@@ -1,0 +1,89 @@
+Layered Architecture - Presentation, Business, and Data Layer Separation
+
+Introduction
+
+Layered architecture (sometimes called n-tier architecture) organizes an application into horizontal layers, each responsible for a distinct concern, where each layer depends only on the layer directly beneath it. The most common arrangement splits an application into a presentation layer, a business (or application/service) layer, and a data access layer. This separation is one of the oldest and most widely used architectural patterns in backend web development, underlying most MVC frameworks in practice even when not named explicitly.
+
+The Three Core Layers
+
+Presentation Layer
+
+The presentation layer is responsible for everything related to handling incoming requests and producing a response: parsing HTTP input, invoking the appropriate business logic, and formatting the result as JSON, HTML, or another representation. In a typical web framework, this layer corresponds to controllers or route handlers. The presentation layer should contain minimal logic beyond request/response plumbing — it translates an HTTP request into a call against the business layer, and translates the business layer's result back into an HTTP response.
+
+```
+// Presentation layer - a Gin handler
+func GetUserHandler(c *gin.Context) {
+    id := c.Param("id")
+    user, err := userService.GetUser(id)  // delegates to business layer
+    if err != nil {
+        c.JSON(404, gin.H{"error": "not found"})
+        return
+    }
+    c.JSON(200, user)
+}
+```
+
+Business Layer
+
+The business layer (also called the service layer or application layer) contains the actual rules and logic of the application: validating that an order total doesn't exceed a customer's credit limit, calculating a discount, or enforcing that only an account's owner can close it. This layer is framework-agnostic in principle — it shouldn't know anything about HTTP requests, JSON serialization, or which web framework is being used, since the same business logic could in theory be invoked from a web controller, a background job, or a command-line tool.
+
+```
+// Business layer - a service, independent of HTTP concerns
+func (s *UserService) GetUser(id string) (*User, error) {
+    user, err := s.repo.FindByID(id)
+    if err != nil {
+        return nil, err
+    }
+    if user.IsSuspended {
+        return nil, ErrUserSuspended
+    }
+    return user, nil
+}
+```
+
+Data Access Layer
+
+The data access layer is responsible for reading and writing persistent data, wrapping the specific database or storage technology in use behind functions or methods that the business layer can call without needing to know whether the underlying store is PostgreSQL, MySQL, or something else entirely. This layer typically contains SQL queries, ORM calls, or calls to an external data store's client library.
+
+```
+// Data access layer - a repository talking directly to the database
+func (r *UserRepository) FindByID(id string) (*User, error) {
+    var user User
+    result := r.db.First(&user, "id = ?", id)
+    if result.Error != nil {
+        return nil, result.Error
+    }
+    return &user, nil
+}
+```
+
+Why Layer Separation Matters
+
+Each layer in a layered architecture depends only on the layer immediately below it, and layers should not skip over each other or depend upward. A controller in the presentation layer should call into the business layer, never directly into the data access layer, and the data access layer should never call back up into business logic. This strict downward dependency keeps responsibilities cleanly separated: a change to how data is persisted (switching database engines, changing a table schema) should only require changes in the data access layer, not in business logic or in every controller that happens to touch that data.
+
+Testability is one of the most practical benefits. Because the business layer doesn't depend on any specific web framework or database driver directly, it can be unit tested by substituting a fake or in-memory data access layer, exercising business rules without needing a real database connection or an HTTP request/response cycle at all.
+
+Layered Architecture in Practice: A Typical Request Flow
+
+1. An HTTP request arrives at a route, handled by a controller in the presentation layer.
+2. The controller parses and validates the request's shape (not business rules, just structural validity), then calls a method on a service in the business layer.
+3. The service applies business rules, and calls one or more repositories in the data access layer to read or write data as needed.
+4. The repository executes the actual database query or ORM call and returns plain data (or domain objects) back up to the service.
+5. The service processes the result according to business rules and returns it to the controller.
+6. The controller serializes the result into the appropriate response format and sends the HTTP response.
+
+Common Pitfalls
+
+Leaking data access details upward: if a controller directly constructs a raw SQL query or calls an ORM method itself instead of going through a service and repository, the presentation layer becomes coupled to a specific database technology, defeating the purpose of the separation.
+
+Leaking business logic downward: if validation rules or business calculations end up inside a repository's query logic, or inside a database trigger, that logic becomes harder to test, harder to reuse across different entry points (web, CLI, background job), and often harder to reason about since it's now split across two very different technologies (application code and SQL).
+
+Anemic layering: sometimes a "business layer" exists in name only, with services that simply forward calls straight through to repositories without adding any actual logic. This isn't wrong by itself in simple CRUD-heavy applications, but it's worth recognizing when the layered structure is providing genuine separation of concerns versus when it's largely ceremonial boilerplate for an application whose business logic is genuinely minimal.
+
+Relationship to MVC
+
+Layered architecture and MVC (Model-View-Controller) overlap substantially but aren't identical. MVC's Controller roughly maps to the presentation layer, but MVC's Model is often used loosely to mean both business logic and data access combined, without necessarily separating them into two distinct layers. Many real-world "MVC" applications are, more precisely, layered architectures where the "Model" folder actually contains both business-layer services and data-access-layer repositories mixed together. Explicitly separating business logic from data access, even within an MVC-based framework like Laravel or Spring Boot, is a common refinement that keeps the "Model" concept from becoming an unstructured dumping ground as an application grows.
+
+When Layered Architecture Is a Good Fit
+
+Layered architecture works well for applications of small to moderate complexity, where a single, fairly linear request-processing flow (parse request, apply business rule, touch the database, respond) captures the bulk of what the application does. It's the default structure most web frameworks nudge developers toward, and it's straightforward to explain, onboard new developers into, and reason about. As an application's business logic grows more intricate — with many interacting rules, multiple external systems, or a need to swap out entire subsystems independently — architectures like Clean Architecture or hexagonal architecture, which formalize dependency direction even more strictly, may offer additional benefits over a conventional layered approach.

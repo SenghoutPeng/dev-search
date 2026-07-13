@@ -1,0 +1,483 @@
+SQL Fundamentals - Structured Query Language for Databases
+
+Introduction
+
+SQL (Structured Query Language) is the standard language for interacting with relational databases. SQL allows you to retrieve, insert, update, and delete data, as well as create and modify database structures. Learning SQL is essential for backend development, data analysis, and database administration.
+
+SQL is declarative, meaning you specify what you want, not how to get it. The database engine figures out the optimal way to retrieve or modify the data.
+
+Basic SQL Concepts
+
+Databases: Collections of organized data stored on a server
+Tables: Collections of related data organized in rows and columns
+Rows: Individual records containing data for one entity
+Columns: Attributes or fields, each with a name and data type
+Keys: Identifiers ensuring uniqueness (Primary Key, Foreign Key)
+Queries: Requests to retrieve, modify, or delete data
+
+SQL Syntax is case-insensitive for keywords (SELECT, FROM, WHERE are the same as select, from, where), though it's conventional to use uppercase for readability.
+
+SELECT Statement - Retrieving Data
+
+SELECT is the most common SQL statement, used to retrieve data from tables.
+
+Basic SELECT:
+
+```sql
+SELECT * FROM users;
+```
+
+Retrieves all columns from all rows in the users table.
+
+SELECT specific columns:
+
+```sql
+SELECT id, name, email FROM users;
+```
+
+Returns only the id, name, and email columns for all users.
+
+WHERE Clause - Filtering
+
+WHERE filters rows based on conditions:
+
+```sql
+SELECT * FROM users WHERE age > 18;
+```
+
+Returns only users older than 18.
+
+```sql
+SELECT * FROM users WHERE status = 'active' AND created_year = 2024;
+```
+
+Multiple conditions with AND (all must be true) or OR (any can be true).
+
+Comparison Operators:
+= Equal to
+!= or <> Not equal to
+> Greater than
+< Less than
+>= Greater than or equal
+<= Less than or equal
+BETWEEN Between two values
+IN In a list of values
+LIKE Pattern matching with wildcards
+IS NULL Check for null values
+
+Examples:
+
+```sql
+SELECT * FROM products WHERE price BETWEEN 10 AND 100;
+SELECT * FROM users WHERE role IN ('admin', 'moderator', 'user');
+SELECT * FROM customers WHERE email LIKE '%@gmail.com';
+SELECT * FROM posts WHERE deleted_at IS NULL;
+```
+
+ORDER BY - Sorting
+
+Sort results by one or more columns:
+
+```sql
+SELECT * FROM users ORDER BY name ASC;
+```
+
+Ascending order (A-Z, smallest to largest). ASC is the default.
+
+```sql
+SELECT * FROM users ORDER BY created_at DESC;
+```
+
+Descending order (Z-A, largest to smallest).
+
+Multiple sort keys:
+
+```sql
+SELECT * FROM users ORDER BY role DESC, name ASC;
+```
+
+Sort by role descending, then by name ascending within each role.
+
+LIMIT and OFFSET - Pagination
+
+Retrieve a subset of rows:
+
+```sql
+SELECT * FROM users LIMIT 10;
+```
+
+Returns first 10 rows.
+
+```sql
+SELECT * FROM users LIMIT 10 OFFSET 20;
+```
+
+Returns rows 20-29 (skips first 20). Also written as LIMIT 20, 10.
+
+DISTINCT - Unique Values
+
+Remove duplicates:
+
+```sql
+SELECT DISTINCT country FROM customers;
+```
+
+Returns each country only once.
+
+INSERT Statement - Adding Data
+
+Add new rows to a table:
+
+```sql
+INSERT INTO users (name, email, age)
+VALUES ('John Doe', 'john@example.com', 30);
+```
+
+Specify column names and values in order.
+
+Insert multiple rows:
+
+```sql
+INSERT INTO users (name, email, age) VALUES
+  ('John', 'john@example.com', 30),
+  ('Jane', 'jane@example.com', 28),
+  ('Bob', 'bob@example.com', 35);
+```
+
+Insert from SELECT (copy data from another table):
+
+```sql
+INSERT INTO users_archive SELECT * FROM users WHERE deleted = true;
+```
+
+UPDATE Statement - Modifying Data
+
+Update existing rows:
+
+```sql
+UPDATE users SET email = 'newemail@example.com' WHERE id = 123;
+```
+
+Changes email for user with id 123.
+
+Update multiple columns:
+
+```sql
+UPDATE users SET email = 'new@example.com', updated_at = NOW() WHERE id = 123;
+```
+
+Update with conditions:
+
+```sql
+UPDATE users SET status = 'inactive' WHERE last_login < '2024-01-01';
+```
+
+Marks all users who haven't logged in since 2024-01-01 as inactive.
+
+Important: Always use WHERE to target specific rows. UPDATE without WHERE affects all rows.
+
+DELETE Statement - Removing Data
+
+Delete rows:
+
+```sql
+DELETE FROM users WHERE id = 123;
+```
+
+Removes the user with id 123.
+
+Delete with conditions:
+
+```sql
+DELETE FROM logs WHERE created_at < DATE_SUB(NOW(), INTERVAL 30 DAY);
+```
+
+Removes logs older than 30 days.
+
+Important: DELETE without WHERE deletes all rows. Always be careful with DELETE statements.
+
+JOINs - Combining Data from Multiple Tables
+
+Tables often relate to each other. JOINs combine rows from multiple tables based on a condition.
+
+INNER JOIN: Returns rows where there's a match in both tables.
+
+```sql
+SELECT users.name, orders.order_id, orders.total
+FROM users
+INNER JOIN orders ON users.id = orders.user_id;
+```
+
+Returns users and their orders only for users who have orders.
+
+LEFT JOIN: Returns all rows from left table, plus matching rows from right table.
+
+```sql
+SELECT users.name, orders.order_id
+FROM users
+LEFT JOIN orders ON users.id = orders.user_id;
+```
+
+Returns all users and their orders (if any). Users without orders show NULL for order columns.
+
+RIGHT JOIN: Opposite of LEFT JOIN - all rows from right table plus matches from left.
+
+FULL OUTER JOIN: All rows from both tables (not supported in all databases like MySQL).
+
+CROSS JOIN: Every row from left table combined with every row from right table (usually not wanted).
+
+Example with multiple JOINs:
+
+```sql
+SELECT
+  users.name,
+  orders.order_id,
+  order_items.product_id,
+  products.name AS product_name
+FROM users
+INNER JOIN orders ON users.id = orders.user_id
+INNER JOIN order_items ON orders.id = order_items.order_id
+INNER JOIN products ON order_items.product_id = products.id;
+```
+
+Aggregate Functions - Summarizing Data
+
+Aggregate functions compute values across multiple rows.
+
+COUNT: Count rows
+
+```sql
+SELECT COUNT(*) FROM users;
+```
+
+Returns total number of users.
+
+```sql
+SELECT COUNT(email) FROM users;
+```
+
+Counts non-null emails (ignores null values).
+
+SUM: Total of numeric values
+
+```sql
+SELECT SUM(amount) FROM orders;
+```
+
+Returns total of all order amounts.
+
+AVG: Average value
+
+```sql
+SELECT AVG(price) FROM products;
+```
+
+Returns average product price.
+
+MIN: Minimum value
+
+```sql
+SELECT MIN(created_at) FROM users;
+```
+
+Returns earliest user creation date.
+
+MAX: Maximum value
+
+```sql
+SELECT MAX(price) FROM products;
+```
+
+Returns highest price.
+
+GROUP BY - Grouping Data
+
+Aggregate data by groups:
+
+```sql
+SELECT role, COUNT(*) FROM users GROUP BY role;
+```
+
+Counts users in each role.
+
+```sql
+SELECT country, AVG(salary) FROM employees GROUP BY country;
+```
+
+Average salary by country.
+
+Multiple grouping columns:
+
+```sql
+SELECT department, role, COUNT(*)
+FROM employees
+GROUP BY department, role;
+```
+
+Counts by department and role combination.
+
+HAVING - Filtering Groups
+
+Filter aggregated results (like WHERE but for GROUP BY):
+
+```sql
+SELECT role, COUNT(*) as count
+FROM users
+GROUP BY role
+HAVING COUNT(*) > 5;
+```
+
+Returns roles with more than 5 users.
+
+Aliases - Renaming Columns and Tables
+
+Make output more readable:
+
+```sql
+SELECT id AS user_id, name AS user_name, email FROM users;
+```
+
+AS renames columns in output (useful for calculations or clarity).
+
+```sql
+SELECT u.id, u.name, o.order_id
+FROM users AS u
+INNER JOIN orders AS o ON u.id = o.user_id;
+```
+
+Short table aliases make long queries more readable.
+
+Subqueries - Queries Within Queries
+
+Use query results as input to another query:
+
+```sql
+SELECT * FROM users WHERE id IN (
+  SELECT user_id FROM orders WHERE total > 100
+);
+```
+
+Returns users who have orders over 100.
+
+```sql
+SELECT name, (SELECT COUNT(*) FROM orders WHERE orders.user_id = users.id) as order_count
+FROM users;
+```
+
+Shows each user with their order count. Subquery runs for each row (less efficient).
+
+Data Types
+
+Common SQL data types:
+
+INT: Integer numbers
+DECIMAL(10,2): Decimal numbers with fixed precision (10 digits, 2 decimal places)
+VARCHAR(255): Text up to 255 characters
+TEXT: Longer text
+DATE: Date (YYYY-MM-DD)
+DATETIME: Date and time
+TIMESTAMP: Timestamp with timezone
+BOOLEAN: True or false
+JSON: JSON data (newer databases)
+UUID: Universally unique identifier
+
+Constraints - Data Integrity
+
+Constraints enforce data quality:
+
+PRIMARY KEY: Unique identifier for each row
+UNIQUE: Value must be unique across rows
+NOT NULL: Column must have a value
+DEFAULT: Default value if not specified
+FOREIGN KEY: Reference to a row in another table
+CHECK: Value must meet a condition
+
+Example:
+
+```sql
+CREATE TABLE users (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  age INT CHECK (age >= 0),
+  status VARCHAR(20) DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Transactions - Atomic Operations
+
+Group multiple operations into a transaction. Either all succeed or all rollback.
+
+```sql
+START TRANSACTION;
+  UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+  UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+COMMIT;
+```
+
+If anything fails, use ROLLBACK to undo all changes.
+
+Common SQL Queries
+
+Get total orders and average amount per user:
+
+```sql
+SELECT
+  users.name,
+  COUNT(orders.id) as order_count,
+  AVG(orders.total) as avg_order_total
+FROM users
+LEFT JOIN orders ON users.id = orders.user_id
+GROUP BY users.id, users.name
+ORDER BY order_count DESC;
+```
+
+Find products never ordered:
+
+```sql
+SELECT * FROM products
+WHERE id NOT IN (SELECT product_id FROM order_items);
+```
+
+Find users who ordered in last 30 days:
+
+```sql
+SELECT DISTINCT users.*
+FROM users
+INNER JOIN orders ON users.id = orders.user_id
+WHERE orders.created_at > DATE_SUB(NOW(), INTERVAL 30 DAY);
+```
+
+Performance Basics: Indexes
+
+Indexes speed up queries by organizing data for fast lookup. Without indexes, queries scan every row (slow). With indexes on frequently searched columns, queries jump directly to matching rows.
+
+```sql
+CREATE INDEX idx_email ON users(email);
+```
+
+Queries filtering by email become much faster.
+
+```sql
+CREATE INDEX idx_user_status ON users(user_id, status);
+```
+
+Composite index on multiple columns.
+
+Trade-off: Indexes speed up reads but slow down writes (INSERT, UPDATE, DELETE). Use indexes on frequently queried columns, not on all columns.
+
+SQL Best Practices
+
+Use specific column names instead of SELECT *
+Use WHERE to filter data as early as possible
+Use INNER JOIN instead of WHERE conditions (clearer and usually faster)
+Avoid N+1 queries - don't query in loops
+Use indexes on frequently searched columns
+Keep queries simple and readable
+Use transactions for multi-step operations
+Validate data before inserting
+Use parameterized queries to prevent SQL injection
+Monitor slow queries and optimize
+
+SQL is the foundation of data-driven applications. Mastering these fundamentals enables building efficient, maintainable database applications.

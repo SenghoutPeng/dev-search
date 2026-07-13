@@ -1,0 +1,59 @@
+CI/CD Basics - Continuous Integration and Continuous Deployment
+
+Introduction
+
+CI/CD stands for Continuous Integration and Continuous Delivery/Deployment, a set of practices that automate building, testing, and releasing software so that changes can be integrated and shipped frequently, in small increments, with confidence that they work. Rather than manually testing and deploying code after long stretches of isolated development, CI/CD relies on automated pipelines that run every time code changes, catching problems as early as possible.
+
+Continuous Integration
+
+Continuous Integration (CI) is the practice of frequently merging code changes from multiple contributors into a shared main branch, with an automated build and test suite running against every merge (and often against every proposed change, before it's even merged). The goal is to detect integration problems — code from two different contributors that doesn't work correctly together — quickly, while the change causing the problem is still small and fresh in the author's mind, rather than discovering it weeks later when a large batch of changes are integrated all at once.
+
+A typical CI workflow triggers automatically whenever a developer pushes a commit or opens a pull request:
+
+1. The CI system checks out the proposed code changes.
+2. It installs dependencies needed to build and test the project.
+3. It compiles or builds the application (for compiled languages like Go or Java, this step also verifies the code is syntactically and type-correct).
+4. It runs the automated test suite (unit tests, and often integration tests).
+5. It reports success or failure back to the pull request or commit, often blocking a merge until the pipeline passes.
+
+Continuous Delivery and Continuous Deployment
+
+Continuous Delivery extends CI by automatically preparing every change that passes CI for release — building a deployable artifact (a binary, a container image, a package) and often deploying it automatically to a staging environment — but still requires a manual approval step before the change reaches production. Continuous Deployment goes one step further and removes that manual gate entirely: any change that passes the full pipeline, including automated tests, is deployed straight to production without a human clicking a button. The two terms are frequently used loosely and somewhat interchangeably as "CD," but the distinction — is a human still involved in the final production release decision, or not — is the precise difference between them.
+
+Typical Pipeline Stages
+
+Most CI/CD pipelines, regardless of the specific tool used to define them, share a similar sequence of stages:
+
+Build: compile the application, resolve and install dependencies, and produce a deployable artifact. For a Go application, this might mean running `go build`; for a Java Spring Boot application, running `mvn package` or `./gradlew build` to produce a jar; for containerized applications, building a Docker image from a Dockerfile.
+
+Test: run the automated test suite. This is often broken into sub-stages — fast unit tests that don't touch a real database or network, followed by slower integration tests that do, and sometimes end-to-end tests that exercise the whole running application. Pipelines commonly run unit tests first so that pipelines fail fast on cheap, quick checks before spending time on slower ones.
+
+Static Analysis and Linting: run linters, formatters, and static analysis tools (such as `go vet`, PHP static analyzers, or Java's Checkstyle) to catch style problems, common bugs, or code smells before a human reviewer even looks at the change.
+
+Security Scanning: scan dependencies for known vulnerabilities and scan the application's own code for common security issues, catching problems that a functional test suite wouldn't necessarily notice.
+
+Package/Publish: produce the final deployable artifact — a versioned binary, a container image pushed to a registry, or a package published to a package repository — tagged so it can be unambiguously deployed later.
+
+Deploy: push the built artifact to a target environment (staging, then production), often using a deployment strategy designed to minimize risk and downtime, such as rolling deployments (replacing instances gradually) or blue-green deployments (running the new version alongside the old one and switching traffic over once it's verified healthy).
+
+Automated Testing's Role in the Pipeline
+
+Automated tests are what make frequent, confident deployment possible at all. Without a trustworthy automated test suite, a team either has to manually re-test the entire application before every release (slow, and easy to skip steps under time pressure) or ship changes without adequate verification (risky). A CI/CD pipeline's test stage typically gates every later stage: if tests fail, the pipeline stops immediately, and the broken change is never packaged or deployed, keeping main and production in a known-good state.
+
+Different kinds of automated tests play different roles in a pipeline. Unit tests, which exercise a single function or small unit of logic in isolation, run quickly and are usually the first check performed, since they catch the largest fraction of bugs for the least computational cost. Integration tests, which exercise how multiple components work together (an API endpoint hitting a real test database, for example), run more slowly but catch a different class of bug — problems in how pieces interact rather than problems within a single piece. End-to-end tests, which simulate a real user's interaction with the fully running system, are typically the slowest and most brittle, so pipelines usually run fewer of them and reserve them for critical user flows.
+
+Why Automate Deployment at All
+
+Manual deployment is error-prone: a step performed slightly differently by different people, or forgotten entirely under time pressure, is a common source of production incidents that have nothing to do with the code itself being wrong. Automating the deployment steps means the exact same sequence of commands runs identically every single time, removing an entire category of "it worked on my machine but not in production" and "I forgot to run the migration" failures. Automation also makes frequent, small deployments practical — since each deployment costs no additional manual effort, teams can ship many small, low-risk changes instead of batching changes into large, high-risk releases.
+
+CI/CD and Containerized Applications
+
+CI/CD pipelines commonly build a container image as their deployable artifact, since a container image bundles the application together with its exact runtime dependencies, guaranteeing that what was tested in the pipeline is bit-for-bit identical to what eventually runs in production. A typical containerized pipeline builds the image, runs the test suite either inside the container or against a temporarily started instance of it, pushes the resulting image to a container registry tagged with a commit hash or version number, and then deploys that exact tagged image to staging and, eventually, production. Because container topics like Dockerfiles, image layering, and orchestration are covered in dedicated Docker documentation, this document focuses on the CI/CD process itself rather than container internals.
+
+Rollbacks
+
+A mature CI/CD setup treats rollback as a first-class part of the deployment story, not an afterthought. Because every deployed artifact is versioned and immutable (the same container image tag, for instance, never changes once built), rolling back a bad deployment can be as simple as redeploying the previous known-good artifact version, without needing to rebuild anything or manually reconstruct an older state. Pipelines are often paired with automated health checks after a deployment completes, so that a deployment that causes error rates to spike can be automatically rolled back before it affects most users, rather than waiting for a human to notice and intervene.
+
+Common CI/CD Tools
+
+A variety of tools implement these ideas, generally through a configuration file checked into the same repository as the application code, describing the pipeline's stages and triggers. The specific tool used (whether it's a hosted service integrated with a Git hosting provider, or a self-managed system) matters less than the underlying practices: frequent integration, automated testing gating every change, and automated, repeatable deployment.

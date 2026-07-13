@@ -1,0 +1,957 @@
+Routing
+
+Source: https://laravel.com/docs/12.x/routing
+
+Basic Routing
+
+The most basic Laravel routes accept a URI and a closure, providing a very simple and expressive method of defining routes and behavior without complicated routing configuration files:
+
+```php
+use Illuminate\Support\Facades\Route;
+
+Route::get('/greeting', function () {
+    return 'Hello World';
+});
+```
+
+The Default Route Files
+
+All Laravel routes are defined in your route files, which are located in the `routes` directory. These files are automatically loaded by Laravel using the configuration specified in your application's `bootstrap/app.php` file. The `routes/web.php` file defines routes that are for your web interface. These routes are assigned the `web` middleware group, which provides features like session state and CSRF protection.
+
+For most applications, you will begin by defining routes in your `routes/web.php` file. The routes defined in `routes/web.php` may be accessed by entering the defined route's URL in your browser. For example, you may access the following route by navigating to `http://example.com/user` in your browser:
+
+```php
+use App\Http\Controllers\UserController;
+
+Route::get('/user', [UserController::class, 'index']);
+```
+
+API Routes
+
+If your application will also offer a stateless API, you may enable API routing using the `install:api` Artisan command:
+
+```shell
+php artisan install:api
+```
+
+The `install:api` command installs Laravel Sanctum, which provides a robust, yet simple API token authentication guard which can be used to authenticate third-party API consumers, SPAs, or mobile applications. In addition, the `install:api` command creates the `routes/api.php` file:
+
+```php
+Route::get('/user', function (Request $request) {
+    return $request->user();
+})->middleware('auth:sanctum');
+```
+
+Of course, you are free to omit the `auth:sanctum` middleware on routes that should be publicly accessible.
+
+The routes in `routes/api.php` are stateless and are assigned to the `api` middleware group. Additionally, the `/api` URI prefix is automatically applied to these routes, so you do not need to manually apply it to every route in the file. You may change the prefix by modifying your application's `bootstrap/app.php` file:
+
+```php
+->withRouting(
+    api: DIR.'/../routes/api.php',
+    apiPrefix: 'api/admin',
+    // ...
+)
+```
+
+Available Router Methods
+
+The router allows you to register routes that respond to any HTTP verb:
+
+```php
+Route::get($uri, $callback);
+Route::post($uri, $callback);
+Route::put($uri, $callback);
+Route::patch($uri, $callback);
+Route::delete($uri, $callback);
+Route::options($uri, $callback);
+```
+
+Sometimes you may need to register a route that responds to multiple HTTP verbs. You may do so using the `match` method. Or, you may even register a route that responds to all HTTP verbs using the `any` method:
+
+```php
+Route::match(['get', 'post'], '/', function () {
+    // ...
+});
+
+Route::any('/', function () {
+    // ...
+});
+```
+
+When defining multiple routes that share the same URI, routes using the `get`, `post`, `put`, `patch`, `delete`, and `options` methods should be defined before routes using the `any`, `match`, and `redirect` methods. This ensures the incoming request is matched with the correct route.
+
+Dependency Injection
+
+You may type-hint any dependencies required by your route in your route's callback signature. The declared dependencies will automatically be resolved and injected into the callback by the Laravel service container. For example, you may type-hint the `Illuminate\Http\Request` class to have the current HTTP request automatically injected into your route callback:
+
+```php
+use Illuminate\Http\Request;
+
+Route::get('/users', function (Request $request) {
+    // ...
+});
+```
+
+CSRF Protection
+
+Remember, any HTML forms pointing to `POST`, `PUT`, `PATCH`, or `DELETE` routes that are defined in the `web` routes file should include a CSRF token field. Otherwise, the request will be rejected:
+
+```blade
+<form method="POST" action="/profile">
+    @csrf
+    ...
+</form>
+```
+
+Redirect Routes
+
+If you are defining a route that redirects to another URI, you may use the `Route::redirect` method:
+
+```php
+Route::redirect('/here', '/there');
+```
+
+By default, `Route::redirect` returns a `302` status code. You may customize the status code using the optional third parameter:
+
+```php
+Route::redirect('/here', '/there', 301);
+```
+
+Or, you may use the `Route::permanentRedirect` method to return a `301` status code:
+
+```php
+Route::permanentRedirect('/here', '/there');
+```
+
+View Routes
+
+If your route only needs to return a view, you may use the `Route::view` method:
+
+```php
+Route::view('/welcome', 'welcome');
+
+Route::view('/welcome', 'welcome', ['name' => 'Taylor']);
+```
+
+Listing Your Routes
+
+The `route:list` Artisan command can easily provide an overview of all of the routes that are defined by your application:
+
+```shell
+php artisan route:list
+```
+
+By default, the route middleware that are assigned to each route will not be displayed in the `route:list` output; however, you can instruct Laravel to display the route middleware and middleware group names by adding the `-v` option to the command:
+
+```shell
+php artisan route:list -v
+
+Expand middleware groups...
+php artisan route:list -vv
+```
+
+Route Parameters
+
+Required Parameters
+
+Sometimes you will need to capture segments of the URI within your route. For example, you may need to capture a user's ID from the URL. You may do so by defining route parameters:
+
+```php
+Route::get('/user/{id}', function (string $id) {
+    return 'User '.$id;
+});
+```
+
+You may define as many route parameters as required by your route:
+
+```php
+Route::get('/posts/{post}/comments/{comment}', function (string $postId, string $commentId) {
+    // ...
+});
+```
+
+Route parameters are always encased within `{}` braces and should consist of alphabetic characters. Underscores (`_`) are also acceptable within route parameter names. Route parameters are injected into route callbacks / controllers based on their order - the names of the route callback / controller arguments do not matter.
+
+Optional Parameters
+
+Occasionally you may need to specify a route parameter that may not always be present in the URI. You may do so by placing a `?` mark after the parameter name. Make sure to give the route's corresponding variable a default value:
+
+```php
+Route::get('/user/{name?}', function (?string $name = null) {
+    return $name;
+});
+
+Route::get('/user/{name?}', function (?string $name = 'John') {
+    return $name;
+});
+```
+
+Regular Expression Constraints
+
+You may constrain the format of your route parameters using the `where` method on a route instance:
+
+```php
+Route::get('/user/{name}', function (string $name) {
+    // ...
+})->where('name', '[A-Za-z]+');
+
+Route::get('/user/{id}', function (string $id) {
+    // ...
+})->where('id', '[0-9]+');
+
+Route::get('/user/{id}/{name}', function (string $id, string $name) {
+    // ...
+})->where(['id' => '[0-9]+', 'name' => '[a-z]+']);
+```
+
+For convenience, some commonly used regular expression patterns have helper methods that allow you to quickly add pattern constraints to your routes:
+
+```php
+Route::get('/user/{id}/{name}', function (string $id, string $name) {
+    // ...
+})->whereNumber('id')->whereAlpha('name');
+
+Route::get('/user/{name}', function (string $name) {
+    // ...
+})->whereAlphaNumeric('name');
+
+Route::get('/user/{id}', function (string $id) {
+    // ...
+})->whereUuid('id');
+
+Route::get('/category/{category}', function (string $category) {
+    // ...
+})->whereIn('category', ['movie', 'song', 'painting']);
+```
+
+If the incoming request does not match the route pattern constraints, a 404 HTTP response will be returned.
+
+Named Routes
+
+Named routes allow the convenient generation of URLs or redirects for specific routes. You may specify a name for a route by chaining the `name` method onto the route definition:
+
+```php
+Route::get('/user/profile', function () {
+    // ...
+})->name('profile');
+```
+
+Generating URLs to Named Routes
+
+Once you have assigned a name to a given route, you may use the route's name when generating URLs or redirects via Laravel's `route` and `redirect` helper functions:
+
+```php
+// Generating URLs...
+$url = route('profile');
+
+// Generating Redirects...
+return redirect()->route('profile');
+
+return to_route('profile');
+```
+
+If the named route defines parameters, you may pass the parameters as the second argument to the `route` function:
+
+```php
+Route::get('/user/{id}/profile', function (string $id) {
+    // ...
+})->name('profile');
+
+$url = route('profile', ['id' => 1]);
+```
+
+Route Groups
+
+Route groups allow you to share route attributes, such as middleware, across a large number of routes without needing to define those attributes on each individual route.
+
+Middleware
+
+To assign middleware to all routes within a group, you may use the `middleware` method before defining the group. Middleware are executed in the order they are listed in the array:
+
+```php
+Route::middleware(['first', 'second'])->group(function () {
+    Route::get('/', function () {
+        // Uses first & second middleware...
+    });
+
+    Route::get('/user/profile', function () {
+        // Uses first & second middleware...
+    });
+});
+```
+
+Controllers
+
+If a group of routes all utilize the same controller, you may use the `controller` method to define the common controller for all of the routes within the group:
+
+```php
+use App\Http\Controllers\OrderController;
+
+Route::controller(OrderController::class)->group(function () {
+    Route::get('/orders/{id}', 'show');
+    Route::post('/orders', 'store');
+});
+```
+
+Subdomain Routing
+
+Route groups may also be used to handle subdomain routing. Subdomains may be assigned route parameters just like route URIs:
+
+```php
+Route::domain('{account}.example.com')->group(function () {
+    Route::get('/user/{id}', function (string $account, string $id) {
+        // ...
+    });
+});
+```
+
+Route Prefixes
+
+The `prefix` method may be used to prefix each route in the group with a given URI:
+
+```php
+Route::prefix('admin')->group(function () {
+    Route::get('/users', function () {
+        // Matches The "/admin/users" URL
+    });
+});
+```
+
+Route Name Prefixes
+
+The `name` method may be used to prefix each route name in the group with a given string:
+
+```php
+Route::name('admin.')->group(function () {
+    Route::get('/users', function () {
+        // Route assigned name "admin.users"...
+    })->name('users');
+});
+```
+
+Route Model Binding
+
+When injecting a model ID to a route or controller action, you will often query the database to retrieve the model that corresponds to that ID. Laravel route model binding provides a convenient way to automatically inject the model instances directly into your routes.
+
+Implicit Binding
+
+Laravel automatically resolves Eloquent models defined in routes or controller actions whose type-hinted variable names match a route segment name:
+
+```php
+use App\Models\User;
+
+Route::get('/users/{user}', function (User $user) {
+    return $user->email;
+});
+```
+
+Since the `$user` variable is type-hinted as the `App\Models\User` Eloquent model and the variable name matches the `{user}` URI segment, Laravel will automatically inject the model instance that has an ID matching the corresponding value from the request URI. If a matching model instance is not found in the database, a 404 HTTP response will automatically be generated.
+
+Customizing the Key
+
+Sometimes you may wish to resolve Eloquent models using a column other than `id`. To do so, you may specify the column in the route parameter definition:
+
+```php
+use App\Models\Post;
+
+Route::get('/posts/{post:slug}', function (Post $post) {
+    return $post;
+});
+```
+
+Implicit Enum Binding
+
+PHP 8.1 introduced support for Enums. Laravel allows you to type-hint a string-backed Enum on your route definition and Laravel will only invoke the route if that route segment corresponds to a valid Enum value:
+
+```php
+use App\Enums\Category;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/categories/{category}', function (Category $category) {
+    return $category->value;
+});
+```
+
+Explicit Binding
+
+You can also explicitly define how route parameters correspond to models. To register an explicit binding, use the router's `model` method to specify the class for a given parameter:
+
+```php
+use App\Models\User;
+use Illuminate\Support\Facades\Route;
+
+public function boot(): void
+{
+    Route::model('user', User::class);
+}
+```
+
+Fallback Routes
+
+Using the `Route::fallback` method, you may define a route that will be executed when no other route matches the incoming request:
+
+```php
+Route::fallback(function () {
+    // ...
+});
+```
+
+Rate Limiting
+
+Defining Rate Limiters
+
+Laravel includes powerful and customizable rate limiting services that you may utilize to restrict the amount of traffic for a given route or group of routes. Rate limiters may be defined within the `boot` method of your application's `App\Providers\AppServiceProvider` class:
+
+```php
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
+
+public function boot(): void
+{
+    RateLimiter::for('api', function (Request $request) {
+        return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
+    });
+}
+```
+
+If the incoming request exceeds the specified rate limit, a response with a 429 HTTP status code will automatically be returned by Laravel.
+
+Attaching Rate Limiters to Routes
+
+Rate limiters may be attached to routes or route groups using the `throttle` middleware. The throttle middleware accepts the name of the rate limiter you wish to assign to the route:
+
+```php
+Route::middleware(['throttle:uploads'])->group(function () {
+    Route::post('/audio', function () {
+        // ...
+    });
+
+    Route::post('/video', function () {
+        // ...
+    });
+});
+```
+
+Form Method Spoofing
+
+HTML forms do not support `PUT`, `PATCH`, or `DELETE` actions. So, when defining `PUT`, `PATCH`, or `DELETE` routes that are called from an HTML form, you will need to add a hidden `_method` field to the form:
+
+```blade
+<form action="/example" method="POST">
+    <input type="hidden" name="_method" value="PUT">
+    <input type="hidden" name="_token" value="{{ csrf_token() }}">
+</form>
+```
+
+Accessing the Current Route
+
+You may use the `current`, `currentRouteName`, and `currentRouteAction` methods on the `Route` facade to access information about the route handling the incoming request:
+
+```php
+use Illuminate\Support\Facades\Route;
+
+$route = Route::current(); // Illuminate\Routing\Route
+$name = Route::currentRouteName(); // string
+$action = Route::currentRouteAction(); // string
+```
+
+Cross-Origin Resource Sharing (CORS)
+
+Laravel can automatically respond to CORS `OPTIONS` HTTP requests with values that you configure. The `OPTIONS` requests will automatically be handled by the `HandleCors` middleware that is automatically included in your application's global middleware stack.
+
+Route Caching
+
+When deploying your application to production, you should take advantage of Laravel's route cache. Using the route cache will drastically decrease the amount of time it takes to register all of your application's routes:
+
+```shell
+php artisan route:cache
+```
+
+After running this command, your cached routes file will be loaded on every request. Remember, if you add any new routes you will need to generate a fresh route cache. You may use the `route:clear` command to clear the route cache:
+
+```shell
+php artisan route:clear
+```
+</content>
+
+
+Middleware
+
+Source: https://laravel.com/docs/12.x/middleware
+
+Introduction
+
+Middleware provide a convenient mechanism for inspecting and filtering HTTP requests entering your application. For example, Laravel includes a middleware that verifies the user of your application is authenticated. If the user is not authenticated, the middleware will redirect the user to your application's login screen. However, if the user is authenticated, the middleware will allow the request to proceed further into the application.
+
+Additional middleware can be written to perform a variety of tasks besides authentication. For example, a logging middleware might log all incoming requests to your application. A variety of middleware are included in Laravel, including middleware for authentication and CSRF protection; however, all user-defined middleware are typically located in your application's `app/Http/Middleware` directory.
+
+Defining Middleware
+
+To create a new middleware, use the `make:middleware` Artisan command:
+
+```shell
+php artisan make:middleware EnsureTokenIsValid
+```
+
+This command will place a new `EnsureTokenIsValid` class within your `app/Http/Middleware` directory. In this middleware, we will only allow access to the route if the supplied `token` input matches a specified value. Otherwise, we will redirect the users back to the `/home` URI:
+
+```php
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class EnsureTokenIsValid
+{
+    /
+     * Handle an incoming request.
+     *
+     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     */
+    public function handle(Request $request, Closure $next): Response
+    {
+        if ($request->input('token') !== 'my-secret-token') {
+            return redirect('/home');
+        }
+
+        return $next($request);
+    }
+}
+```
+
+As you can see, if the given `token` does not match our secret token, the middleware will return an HTTP redirect to the client; otherwise, the request will be passed further into the application. To pass the request deeper into the application (allowing the middleware to "pass"), you should call the `$next` callback with the `$request`.
+
+It's best to envision middleware as a series of "layers" HTTP requests must pass through before they hit your application. Each layer can examine the request and even reject it entirely.
+
+All middleware are resolved via the service container, so you may type-hint any dependencies you need within a middleware's constructor.
+
+Middleware and Responses
+
+Of course, a middleware can perform tasks before or after passing the request deeper into the application. For example, the following middleware would perform some task before the request is handled by the application:
+
+```php
+class BeforeMiddleware
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        // Perform action
+
+        return $next($request);
+    }
+}
+```
+
+However, this middleware would perform its task after the request is handled by the application:
+
+```php
+class AfterMiddleware
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        $response = $next($request);
+
+        // Perform action
+
+        return $response;
+    }
+}
+```
+
+Registering Middleware
+
+Global Middleware
+
+If you want a middleware to run during every HTTP request to your application, you may append it to the global middleware stack in your application's `bootstrap/app.php` file:
+
+```php
+use App\Http\Middleware\EnsureTokenIsValid;
+
+->withMiddleware(function (Middleware $middleware): void {
+     $middleware->append(EnsureTokenIsValid::class);
+})
+```
+
+The `$middleware` object provided to the `withMiddleware` closure is an instance of `Illuminate\Foundation\Configuration\Middleware` and is responsible for managing the middleware assigned to your application's routes. The `append` method adds the middleware to the end of the list of global middleware. If you would like to add a middleware to the beginning of the list, you should use the `prepend` method.
+
+Assigning Middleware to Routes
+
+If you would like to assign middleware to specific routes, you may invoke the `middleware` method when defining the route:
+
+```php
+use App\Http\Middleware\EnsureTokenIsValid;
+
+Route::get('/profile', function () {
+    // ...
+})->middleware(EnsureTokenIsValid::class);
+```
+
+You may assign multiple middleware to the route by passing an array of middleware names to the `middleware` method:
+
+```php
+Route::get('/', function () {
+    // ...
+})->middleware([First::class, Second::class]);
+```
+
+Excluding Middleware
+
+When assigning middleware to a group of routes, you may occasionally need to prevent the middleware from being applied to an individual route within the group. You may accomplish this using the `withoutMiddleware` method:
+
+```php
+use App\Http\Middleware\EnsureTokenIsValid;
+
+Route::middleware([EnsureTokenIsValid::class])->group(function () {
+    Route::get('/', function () {
+        // ...
+    });
+
+    Route::get('/profile', function () {
+        // ...
+    })->withoutMiddleware([EnsureTokenIsValid::class]);
+});
+```
+
+Middleware Groups
+
+Sometimes you may want to group several middleware under a single key to make them easier to assign to routes. You may accomplish this using the `appendToGroup` method within your application's `bootstrap/app.php` file:
+
+```php
+use App\Http\Middleware\First;
+use App\Http\Middleware\Second;
+
+->withMiddleware(function (Middleware $middleware): void {
+    $middleware->appendToGroup('group-name', [
+        First::class,
+        Second::class,
+    ]);
+
+    $middleware->prependToGroup('group-name', [
+        First::class,
+        Second::class,
+    ]);
+})
+```
+
+Middleware groups may be assigned to routes and controller actions using the same syntax as individual middleware:
+
+```php
+Route::get('/', function () {
+    // ...
+})->middleware('group-name');
+
+Route::middleware(['group-name'])->group(function () {
+    // ...
+});
+```
+
+Laravel's Default Middleware Groups
+
+Laravel includes predefined `web` and `api` middleware groups that contain common middleware you may want to apply to your web and API routes. Laravel automatically applies these middleware groups to the corresponding `routes/web.php` and `routes/api.php` files:
+
+| The web Middleware Group |
+| ------------------------ |
+| Illuminate\\Cookie\\Middleware\\EncryptCookies |
+| Illuminate\\Cookie\\Middleware\\AddQueuedCookiesToResponse |
+| Illuminate\\Session\\Middleware\\StartSession |
+| Illuminate\\View\\Middleware\\ShareErrorsFromSession |
+| Illuminate\\Foundation\\Http\\Middleware\\ValidateCsrfToken |
+| Illuminate\\Routing\\Middleware\\SubstituteBindings |
+
+| The api Middleware Group |
+| ------------------------ |
+| Illuminate\\Routing\\Middleware\\SubstituteBindings |
+
+Middleware Aliases
+
+You may assign aliases to middleware in your application's `bootstrap/app.php` file. Middleware aliases allow you to define a short alias for a given middleware class, which can be especially useful for middleware with long class names:
+
+```php
+use App\Http\Middleware\EnsureUserIsSubscribed;
+
+->withMiddleware(function (Middleware $middleware): void {
+    $middleware->alias([
+        'subscribed' => EnsureUserIsSubscribed::class
+    ]);
+})
+```
+
+Once the middleware alias has been defined, you may use the alias when assigning the middleware to routes:
+
+```php
+Route::get('/profile', function () {
+    // ...
+})->middleware('subscribed');
+```
+
+For convenience, some of Laravel's built-in middleware are aliased by default. For example, the `auth` middleware is an alias for the `Illuminate\Auth\Middleware\Authenticate` middleware.
+
+Sorting Middleware
+
+Rarely, you may need your middleware to execute in a specific order but not have control over their order when they are assigned to the route. In these situations, you may specify your middleware priority using the `priority` method in your application's `bootstrap/app.php` file:
+
+```php
+->withMiddleware(function (Middleware $middleware): void {
+    $middleware->priority([
+        \Illuminate\Foundation\Http\Middleware\HandlePrecognitiveRequests::class,
+        \Illuminate\Cookie\Middleware\EncryptCookies::class,
+        \Illuminate\Session\Middleware\StartSession::class,
+        \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
+        \Illuminate\Routing\Middleware\ThrottleRequests::class,
+        \Illuminate\Routing\Middleware\SubstituteBindings::class,
+        \Illuminate\Auth\Middleware\Authorize::class,
+    ]);
+})
+```
+
+Middleware Parameters
+
+Middleware can also receive additional parameters. For example, if your application needs to verify that the authenticated user has a given "role" before performing a given action, you could create an `EnsureUserHasRole` middleware that receives a role name as an additional argument.
+
+Additional middleware parameters will be passed to the middleware after the `$next` argument:
+
+```php
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class EnsureUserHasRole
+{
+    /
+     * Handle an incoming request.
+     *
+     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     */
+    public function handle(Request $request, Closure $next, string $role): Response
+    {
+        if (! $request->user()->hasRole($role)) {
+            // Redirect...
+        }
+
+        return $next($request);
+    }
+}
+```
+
+Middleware parameters may be specified when defining the route by separating the middleware name and parameters with a `:`:
+
+```php
+use App\Http\Middleware\EnsureUserHasRole;
+
+Route::put('/post/{id}', function (string $id) {
+    // ...
+})->middleware(EnsureUserHasRole::class.':editor');
+```
+
+Multiple parameters may be delimited by commas:
+
+```php
+Route::put('/post/{id}', function (string $id) {
+    // ...
+})->middleware(EnsureUserHasRole::class.':editor,publisher');
+```
+
+Terminable Middleware
+
+Sometimes a middleware may need to do some work after the HTTP response has been sent to the browser. If you define a `terminate` method on your middleware and your web server is using FastCGI, the `terminate` method will automatically be called after the response is sent to the browser:
+
+```php
+<?php
+
+namespace Illuminate\Session\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class TerminatingMiddleware
+{
+    /
+     * Handle an incoming request.
+     *
+     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     */
+    public function handle(Request $request, Closure $next): Response
+    {
+        return $next($request);
+    }
+
+    /
+     * Handle tasks after the response has been sent to the browser.
+     */
+    public function terminate(Request $request, Response $response): void
+    {
+        // ...
+    }
+}
+```
+
+The `terminate` method should receive both the request and the response. Once you have defined a terminable middleware, you should add it to the list of routes or global middleware in your application's `bootstrap/app.php` file.
+
+When calling the `terminate` method on your middleware, Laravel will resolve a fresh instance of the middleware from the service container. If you would like to use the same middleware instance when the `handle` and `terminate` methods are called, register the middleware with the container using the container's `singleton` method:
+
+```php
+use App\Http\Middleware\TerminatingMiddleware;
+
+/
+ * Register any application services.
+ */
+public function register(): void
+{
+    $this->app->singleton(TerminatingMiddleware::class);
+}
+```
+</content>
+
+
+Laravel: Controllers
+
+Source: https://laravel.com/docs/12.x/controllers
+
+Introduction
+
+Instead of defining all of your request handling logic as closures in route files, you may wish to organize this behavior using controller classes. Controllers can group related request handling logic into a single class — for example, a UserController class might handle all incoming requests related to users, including showing, creating, updating, and deleting them. Controllers are stored in the app/Http/Controllers directory by default.
+
+Basic Controllers
+
+php artisan make:controller UserController
+
+An example of a basic controller:
+
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\User;
+use Illuminate\View\View;
+
+class UserController extends Controller
+{
+    public function show(string $id): View
+    {
+        return view('user.profile', [
+            'user' => User::findOrFail($id)
+        ]);
+    }
+}
+
+Once written, you can route to this controller method like so:
+
+use App\Http\Controllers\UserController;
+
+Route::get('/user/{id}', [UserController::class, 'show']);
+
+When an incoming request matches the specified route URI, the show method on the UserController class will be invoked, and the route parameters will be passed to the method.
+
+Single Action Controllers
+
+If a controller action is particularly complex, it's convenient to dedicate an entire controller class to that single action, using an invoke method:
+
+class ProvisionServer extends Controller
+{
+    public function invoke()
+    {
+        // Provision a new web server...
+    }
+}
+
+Register a route for single action controllers without specifying a method name:
+
+use App\Http\Controllers\ProvisionServer;
+
+Route::post('/server', ProvisionServer::class);
+
+You can generate an invokable controller with the --invokable option:
+
+php artisan make:controller ProvisionServer --invokable
+
+Controller Middleware
+
+Middleware may be assigned to the controller's routes in your route files:
+
+Route::get('/profile', [UserController::class, 'show'])->middleware('auth');
+
+Or, more conveniently, you may specify middleware within your controller class itself, implementing the HasMiddleware interface:
+
+class UserController extends Controller implements HasMiddleware
+{
+    public static function middleware(): array
+    {
+        return [
+            'auth',
+            new Middleware('log', only: ['index']),
+            new Middleware('subscribed', except: ['store']),
+        ];
+    }
+}
+
+Controllers also allow you to register middleware using a closure, which is convenient for defining an inline middleware without writing an entire class:
+
+use Closure;
+use Illuminate\Http\Request;
+
+public static function middleware(): array
+{
+    return [
+        function (Request $request, Closure $next) {
+            return $next($request);
+        },
+    ];
+}
+
+Resource Controllers
+
+If you think of each Eloquent model in your application as a "resource," it's typical to perform the same sets of actions against each resource. Laravel's resource routing assigns the typical create, read, update, and delete routes to a controller with a single line of code:
+
+php artisan make:controller PhotoController --resource
+
+Route::resource('photos', PhotoController::class);
+
+This single route declaration creates multiple routes to handle a variety of actions on the resource, and the generated controller will already have a method stubbed for each of these actions:
+
+Verb        URI                       Action    Route Name
+GET         /photos                   index     photos.index
+GET         /photos/create            create    photos.create
+POST        /photos                   store     photos.store
+GET         /photos/{photo}           show      photos.show
+GET         /photos/{photo}/edit      edit      photos.edit
+PUT/PATCH   /photos/{photo}           update    photos.update
+DELETE      /photos/{photo}           destroy   photos.destroy
+
+Specifying the Resource Model's Behavior
+
+By default, Eloquent model instances for a resource controller's routes will be implicitly bound, and Laravel automatically infers the corresponding model class from the route parameter's name, injecting the resolved model directly into the controller method.
+
+Partial Resource Routes
+
+When declaring a resource route, you may specify a subset of actions the controller should handle instead of the full default set:
+
+Route::resource('photos', PhotoController::class)->only([
+    'index', 'show'
+]);
+
+Route::resource('photos', PhotoController::class)->except([
+    'create', 'store', 'update', 'destroy'
+]);
+
+API Resource Routes
+
+When declaring resource routes that will be consumed by APIs, you will commonly want to exclude routes that present HTML templates, such as create and edit. For convenience, use the apiResource method to automatically exclude these two routes:
+
+Route::apiResource('photos', PhotoController::class);
+
+Nested Resources
+
+Sometimes you may need to define routes to a nested resource — for example, a photo resource may have multiple comments attached to it:
+
+Route::resource('photos.comments', PhotoCommentController::class);
+
+This route registers a nested resource that may be accessed with URIs like: /photos/{photo}/comments/{comment}.

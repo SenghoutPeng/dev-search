@@ -1,0 +1,251 @@
+PHP: Basic Syntax
+
+Source: https://www.php.net/manual/en/language.basic-syntax.php
+
+Overview
+
+The basic syntax section of the PHP manual introduces the small set of fundamental conventions that every PHP script relies on before any of the language's more advanced features come into play. These conventions cover how PHP code is delimited within a file, how it interacts with surrounding HTML, how individual statements are separated from one another, and how comments are written.
+
+PHP Tags
+
+PHP code must be marked off from the surrounding document using PHP tags. The canonical opening tag is less-than question-mark php, and the closing tag is question-mark greater-than. Everything between these tags is parsed and executed as PHP; everything outside them, in a file that mixes PHP with HTML, is passed straight through to the output untouched. This tagging mechanism is what lets a single file interleave static markup with dynamic, server-executed logic.
+
+Escaping from HTML
+
+Because PHP files can freely mix PHP and HTML, a script can open a block of PHP code, close it, emit some literal HTML, and then reopen another PHP block later in the very same file. This is commonly described as escaping from HTML into PHP and back again. For example, a template file might render a fixed HTML header, drop into PHP briefly to compute a value or loop over an array, escape back out to HTML to render markup around that value, and repeat the pattern as many times as needed for the page. This interleaving is central to how many PHP applications, particularly older or template-driven ones, structure their view layer.
+
+Instruction Separation
+
+PHP requires each statement to be terminated with a semicolon, in the same way many C-family languages do. The closing PHP tag itself also implies the end of the current statement, so the very last line of a PHP block does not strictly need a trailing semicolon before the closing tag, although including one is still good, unambiguous style. Multiple statements can appear one after another on the same physical line as long as each is properly terminated with its own semicolon.
+
+Comments
+
+PHP supports several comment styles. A double slash or a hash symbol starts a single-line comment that runs to the end of the current line, or up to a closing PHP tag if one appears first on that line. A slash-star opens a multi-line comment that continues, potentially across many lines, until a matching star-slash is reached. Comments are ignored entirely by the PHP interpreter and exist purely to help developers document what a piece of code does, why it exists, or what remains to be done, without affecting the program's behavior in any way.
+
+Why Basic Syntax Matters
+
+These fundamentals, tags, HTML escaping, statement separation, and comments, form the bedrock that every other PHP language feature builds on top of. Variables, operators, control structures, functions, and object-oriented constructs are all written using this same underlying syntactic scaffolding, so a solid understanding of these basics makes every subsequent topic in the language reference easier to follow.
+
+Variables
+
+PHP variables are denoted with a leading dollar sign followed by the variable's name, and unlike many statically typed languages, a PHP variable does not need to be declared with a type before it is used; assigning a value to a variable for the first time is itself the declaration. Variable names are case-sensitive, so $name and $Name refer to two entirely different variables, and a valid variable name follows the same character rules as other PHP identifiers, starting with a letter or underscore and continuing with letters, digits, or underscores.
+
+Variable Scope
+
+By default, a variable defined inside a function is local to that function and is not visible outside it, and conversely a variable defined at the top level of a script is not automatically visible inside a function body unless it is explicitly imported with the global keyword or passed in as a parameter. This lexical scoping keeps functions self-contained and reduces the risk of one part of a script accidentally overwriting a variable used somewhere else, which becomes especially important as a codebase grows and functions begin calling into each other.
+
+Data Types
+
+PHP is a dynamically typed language with a set of core scalar types: int for whole numbers, float for floating-point numbers, string for text, and bool for true and false values. Beyond the scalars, PHP provides array for ordered maps of values, object for instances of classes, and a few special types including null, representing the deliberate absence of a value, and resource, representing an external resource such as an open file handle or database connection. Because PHP performs implicit type coercion in many contexts, such as string concatenation automatically converting a number to its string representation, understanding how and when these conversions happen is an important part of writing predictable PHP code.
+
+Control Structures
+
+PHP supports the familiar set of control structures found in most C-family languages. Conditional branching is handled with if, elseif, and else, as well as a compact ternary operator and, since PHP 7, the null coalescing operator for supplying a default when a value is null or unset. Looping constructs include while and do-while loops that repeat based on a condition, a C-style for loop with an initializer, condition, and increment expression, and the foreach loop, which is the idiomatic way to iterate directly over the elements of an array or any other iterable value without manually tracking an index.
+
+Operators
+
+PHP provides the standard arithmetic operators for addition, subtraction, multiplication, division, and modulus, alongside a dedicated string concatenation operator written as a single period. Comparison operators include both loose equality, which performs type coercion before comparing, and strict equality, written with three equals signs, which requires both the value and the type to match exactly, a distinction that is a frequent source of subtle bugs for developers newer to the language. Logical operators such as and, or, and not have both symbolic forms, like double ampersand and double pipe, and word forms, which differ subtly in their operator precedence relative to assignment.
+
+
+PHP: Arrays
+
+Source: https://www.php.net/manual/en/language.types.array.php
+
+What Is an Array
+
+An array in PHP is actually an ordered map, a type that associates keys to values. This single type is flexible enough to be used as a plain array, a list or vector, a hash table, a dictionary, a general-purpose collection, a stack, or a queue. Because array values can themselves be other arrays, trees and multidimensional arrays are also naturally possible using nothing more than this one built-in type.
+
+Creating Arrays
+
+An array can be created with the array language construct, which accepts any number of comma-separated key-value pairs, written as key followed by an arrow followed by value. A shorter syntax using just square brackets is also available and is generally preferred in modern PHP code, so square-bracket literals and array-construct literals are functionally interchangeable. A trailing comma after the last element is optional; it is usually omitted for compact single-line arrays but is commonly kept for multi-line array literals, since it makes it easy to add a new element at the end later without touching the previous line.
+
+Array Keys
+
+A key can be either an integer or a string, while the value paired with it may be of any type whatsoever. PHP applies several automatic casting rules to keys. A string that looks like a valid decimal integer, such as "8", is cast to the actual integer 8, though a string like "08" is left as a string because it is not a valid decimal integer representation. Floats are cast to integers by truncating the fractional part. Booleans are cast to integers, with true becoming 1 and false becoming 0. Null is cast to the empty string. Arrays and objects cannot be used as keys at all, and attempting to do so triggers a warning. If a key is omitted entirely when defining an array, PHP assigns it the next available integer, one greater than the largest integer key used so far in that array.
+
+Accessing and Modifying Elements
+
+Elements are accessed using square-bracket syntax after the array variable's name, for example an array indexed by a string key or an integer key, and this same access pattern works uniformly however deeply an array is nested. An existing array can be modified simply by assigning to a bracketed key, and if the variable referenced does not yet exist, or currently holds null or false, this assignment implicitly creates a brand-new array, though relying on that implicit creation is generally discouraged in favor of an explicit initial assignment. Appending a new value without specifying any key at all, using empty square brackets, is the idiomatic way to push an item onto the end of an array.
+
+Array Destructuring
+
+Arrays can be destructured into separate variables using either the square-bracket syntax or the older list construct. This works for simple positional destructuring, for destructuring inside a foreach loop over a collection of sub-arrays, for skipping unwanted elements by leaving a position empty between commas, and for destructuring associative arrays by naming the specific keys of interest. Destructuring is also a convenient, well-known idiom for swapping the values of two variables in a single statement without needing a temporary variable.
+
+Array Unpacking with the Spread Operator
+
+An array prefixed with three dots is expanded in place inside another array literal, a feature commonly called the spread operator. Only arrays, and objects implementing Traversable, can be spread this way, and a single array literal can mix normal elements with one or more spread expressions in any combination. When arrays being unpacked share string keys, later values overwrite earlier ones, following the same semantics as the array_merge function, while integer keys are renumbered rather than preserved from their original arrays.
+
+Practical Notes
+
+String literal array indices should always be quoted; writing an unquoted bareword as an index is treated as an undefined constant rather than a string literal, and as of PHP 8 this raises an Error rather than silently falling back to the old bareword-as-string behavior. The foreach control structure exists specifically to traverse arrays conveniently, and reference-based foreach loops, using an ampersand before the loop variable, allow the loop to modify the original array elements in place rather than working on a copy of each value.
+
+Common Array Functions
+
+PHP's standard library provides a large collection of built-in functions for working with arrays. count returns the number of elements in an array. array_map applies a callback function to every element of one or more arrays and returns a new array of the results, without mutating the original. array_filter builds a new array containing only the elements that satisfy a supplied callback, commonly used to remove unwanted or invalid entries from a dataset. array_reduce iteratively combines every element of an array into a single accumulated value using a callback, which is useful for computing sums, concatenations, or other aggregate results. in_array checks whether a given value exists anywhere in an array, while array_search does the same but returns the matching key instead of a boolean. array_keys and array_values extract just the keys or just the values of an array into a new, reindexed array.
+
+Sorting Arrays
+
+PHP provides several sorting functions that differ in whether they preserve keys and in what they sort by. sort and rsort sort an array's values in ascending or descending order respectively, discarding the original keys and reindexing numerically. asort and arsort perform the same sort but preserve the original key-to-value associations, which matters for associative arrays where the keys carry meaning. ksort and krsort sort an array by its keys rather than its values. usort, uasort, and uksort accept a custom comparison callback, letting an array be sorted according to arbitrary application-specific logic rather than PHP's built-in ordering rules.
+
+Merging and Combining Arrays
+
+array_merge combines two or more arrays into a single array; for string keys, values from later arrays overwrite values from earlier ones with the same key, while numeric keys are renumbered sequentially rather than preserved, which differs subtly from the plus operator applied to two arrays, which keeps the keys and values from the left-hand array for any key that also exists in the right-hand array. array_combine builds a new array by pairing up the values of one array, used as keys, with the values of a second array, used as values, provided both arrays have the same number of elements. array_diff and array_intersect compute, respectively, the values present in the first array but absent from the others, and the values present in every array being compared.
+
+
+PHP: User-Defined Functions
+
+Source: https://www.php.net/manual/en/functions.user-defined.php
+
+Function Definition and Syntax
+
+A function in PHP is defined with the function keyword, followed by the function's name, a parenthesized and comma-separated list of parameters that may be empty, and a body enclosed in curly braces. As of PHP 8.0.0, the parameter list is also allowed to end with a trailing comma, matching the trailing-comma allowance already familiar from array literals.
+
+Function Names and Rules
+
+Function names follow the same rules as other identifiers, or labels, in PHP. A valid function name must start with a letter or an underscore, followed by any number of additional letters, digits, or underscores. Function names in PHP are case-insensitive for the plain ASCII letters A through Z, though calling a function using the exact casing it was declared with is still considered good practice for readability.
+
+Declaration Order and Scope
+
+Functions generally do not need to be defined before the point in the file where they are called, since PHP effectively hoists top-level function declarations during compilation. The one important exception is a function that is defined conditionally, for instance inside an if block; such a function's definition must actually be executed before any attempt to call it, because it genuinely does not exist until that branch of code runs. Functions and classes in PHP have global scope, meaning a function declared inside another function only becomes callable once the outer function has actually executed and thereby registered it, but from that point on it can be called from anywhere in the script, including from outside the function it was originally nested in.
+
+Function Body and Features
+
+Any valid PHP code is allowed inside a function body, including other function definitions and even class definitions. PHP does not support traditional function overloading in the sense of multiple same-named functions distinguished only by parameter types or counts; a given function name can only be defined once at a given scope and cannot later be redefined. PHP does, however, support a variable number of arguments through mechanisms like func_get_args, support for default parameter values, and full support for recursive function calls, where a function calls itself directly or indirectly.
+
+Recursive Functions
+
+A recursive function is simply one that calls itself, either directly or through a chain of other function calls, in order to solve a problem by breaking it down into smaller instances of the same problem. A minimal example is a function that prints a number and then calls itself again with an incremented argument until some base condition is reached. Recursion in PHP is not unlimited. Very deep recursion, generally beyond roughly one hundred to two hundred nested calls, risks exhausting the call stack and terminating the script, so infinite or excessively deep recursion is considered a programming error to be avoided rather than relied upon.
+
+Related Function Features
+
+Beyond the basics of declaring and calling a plain function, PHP also supports typed and optional parameters with default values, returning values of any type from a function, so-called variable functions where a variable holding a function's name can be called as though it were the function itself, internal built-in functions provided by the language and its extensions, anonymous functions and closures that can capture variables from their enclosing scope, concise arrow functions, and, in modern PHP versions, a first-class callable syntax for passing a reference to an existing named function or method as a value.
+
+Default Parameter Values
+
+A function parameter can be given a default value by following it with an equals sign and a constant expression in the function's declaration; any caller that omits that argument automatically receives the default instead. Default values must come after any parameters that do not have defaults, unless named arguments are used, since PHP otherwise resolves parameters positionally and could not tell an omitted middle argument from an explicitly passed one. Default values may only be simple constant expressions, not values that depend on other function parameters or on variables from the calling scope.
+
+Type Declarations for Parameters and Return Values
+
+PHP supports optional type declarations on function parameters and on the function's return value, covering the scalar types int, float, string, and bool, class and interface names, array, callable, iterable, and the special types self, static, and never. When a type declaration is present and strict_types has not been declared for the file, PHP performs limited type coercion on scalar arguments to match the declared type; with strict_types enabled, no such coercion happens and a mismatched type results in a TypeError. Nullable types can be declared by prefixing the type with a question mark, indicating that null is an acceptable value in addition to the named type.
+
+Passing Arguments by Reference
+
+By default, PHP passes arguments to functions by value, meaning the function receives a copy and cannot affect the caller's original variable. A parameter can instead be passed by reference by prefixing it with an ampersand in the function's declaration, in which case any modification the function makes to that parameter is reflected back in the caller's original variable once the function returns. Passing by reference is most commonly used for functions that need to modify or fill in a variable belonging to the caller, such as a sorting function that rearranges an array in place rather than returning a new, separately allocated array.
+
+Variadic Functions
+
+A function can accept a variable number of arguments by prefixing its final parameter with three dots, known as the splat or variadic operator; all of the extra arguments passed at the call site are collected into a single array bound to that parameter. This is a modern, more readable alternative to the older func_get_args-based approach for handling an arbitrary number of arguments, and it composes naturally with the spread operator, which can expand an existing array into individual arguments at a call site using the very same three-dot syntax in reverse.
+
+Anonymous Functions and Closures
+
+An anonymous function, sometimes called a closure, is a function value that has no name and can be assigned to a variable, passed as an argument to another function, or returned from a function. By default, an anonymous function does not automatically have access to variables from its enclosing scope; such variables must be explicitly imported using the use keyword in the closure's declaration, at which point they are captured by value unless the variable name in the use clause is itself prefixed with an ampersand to capture it by reference instead. Arrow functions, introduced as a more concise alternative, automatically capture variables from the enclosing scope by value without requiring an explicit use clause, but are limited to a single expression whose result is returned implicitly.
+
+Named Arguments
+
+Since PHP 8.0, a function call can pass arguments by explicitly naming the parameter each value should bind to, rather than relying purely on positional order, using the syntax parameterName followed by a colon and the value. Named arguments let a caller skip over parameters that already have acceptable default values and only specify the ones that actually need to differ from the default, which is especially useful for functions with many optional parameters, since it avoids having to pass placeholder values just to reach a later parameter positionally. Named and positional arguments can be mixed in a single call, provided all positional arguments come first.
+
+Returning Values
+
+A function returns control, and optionally a value, to its caller using the return statement; once return executes, the rest of the function body is skipped entirely, even if there is more code physically written after it. A function with no return statement, or a bare return with no expression, implicitly returns null. Since a function can only return a single value, functions that logically need to hand back multiple pieces of data commonly bundle them into an array or an object, or, since PHP 7.1, a caller can use list-style array destructuring directly against the returned array to unpack it into several separate variables in one statement.
+
+First-Class Callable Syntax
+
+Since PHP 8.1, a reference to an existing named function, static method, or instance method can be obtained directly as a callable value using a special call syntax that supplies three dots in place of the argument list, for example strlen(...) to obtain a callable referring to the strlen function without actually calling it. This first-class callable syntax is a more concise, better-tooling-supported alternative to the older string-based or array-based callable representations, such as passing the string "strlen" or an array pairing an object with a method name, both of which still work but are not checked by static analysis tools as reliably as the newer syntax.
+
+
+PHP: Object-Oriented Programming Basics
+
+Source: https://www.php.net/manual/en/language.oop5.basic.php
+
+Class Definitions
+
+A class in PHP is defined using the class keyword, followed by a class name and a body enclosed in curly braces containing the class's properties, methods, and constants. A valid class name must start with a letter or underscore and continue with any combination of letters, digits, or underscores, and it cannot collide with a PHP reserved word. A class can declare constants, which are fixed values belonging to the class; properties, which are the variables that make up an object's state; and methods, which are the functions defined on the class that operate on that state.
+
+The this Pseudo-Variable
+
+Inside any non-static method, the pseudo-variable $this is automatically available and refers to the specific object instance the method was called on. Writing $this->var accesses the property named var on the current object, and $this->method() invokes another method on that same object. Calling a non-static method in a static way, without an actual object instance behind it, is treated as an error as of PHP 8, whereas earlier versions merely emitted a deprecation notice and left $this undefined inside the call.
+
+Creating Objects with new
+
+An instance of a class is created with the new keyword followed by the class name and, if the constructor takes arguments, a parenthesized argument list; the parentheses can be omitted entirely if the constructor needs no arguments. The class being instantiated must already be defined, whether by an earlier declaration in the same file or through autoloading. A variable holding a string that names a class can also be used with new, dynamically instantiating whatever class that string names; and, since PHP 8.0, new can even be applied to more general expressions, such as the result of a function call, as long as the expression is wrapped in parentheses.
+
+Object Assignment Semantics
+
+Assigning an already-created object to a new variable copies the object's handle, not the object's data, so both variables end up referring to the very same underlying object, and a change made through either variable is visible through the other. This differs from taking a true reference to the variable itself with the reference operator; reassigning the original variable to null, for instance, leaves a plain handle-copy variable still pointing at the original object, but updates a true reference variable to null as well, since a true reference tracks the variable itself rather than merely its current value.
+
+Properties and Methods Share Distinct Namespaces
+
+A class can legally declare a property and a method that share the exact same name, since properties and methods live in separate namespaces within the class; whether a given usage refers to the property or invokes the method depends entirely on whether the surrounding code performs a plain variable-style access or a function-call-style invocation with parentheses.
+
+Inheritance with extends
+
+A class can inherit the constants, properties, and methods of exactly one other class using the extends keyword; PHP does not support multiple inheritance of classes. A subclass may override an inherited method or constant by redeclaring it under the same name, unless the parent explicitly marked that member as final, in which case it cannot be overridden at all. From inside an overriding method, the parent:: syntax can be used to call the original, overridden version defined on the parent class, which is a common pattern when a subclass wants to extend rather than fully replace inherited behavior.
+
+Signature Compatibility and the Liskov Substitution Principle
+
+When a subclass overrides a method, its signature must remain compatible with the parent's version, or PHP raises a fatal error. A signature counts as compatible if it respects the language's variance rules, turns a previously mandatory parameter into an optional one, only adds brand-new optional parameters, and never narrows, only ever relaxes, visibility compared to the parent method. This rule is a direct expression of the Liskov Substitution Principle, and constructors together with private methods are specifically exempted from these compatibility checks.
+
+The class Constant and Nullsafe Access
+
+Appending ::class to any class name resolves, at compile time, to that class's fully qualified name, which is especially convenient for namespaced classes and safer than writing out namespace paths as literal strings by hand. Since PHP 8.0, the same ::class syntax can also be applied to an actual object variable, in which case it resolves at runtime to the same value that get_class would return for that object. PHP 8.0 also introduced the nullsafe operator, written as a question mark followed by an arrow, which accesses a property or calls a method only if the object being dereferenced is not null; if it is null, the whole expression short-circuits to null instead of throwing an error, which is especially useful for safely walking a chain of potentially absent related objects.
+
+PHP Interfaces
+
+Just as in Java, PHP supports interfaces as a separate construct from classes, declared with the interface keyword. An interface specifies a set of method signatures that any implementing class must provide, but, aside from constants, it cannot include any actual method bodies or non-constant properties. A class declares that it fulfills an interface's contract using the implements keyword, and, unlike extending a class, a single PHP class may implement any number of interfaces at once, separating each interface name with a comma. Interfaces can also extend one or more other interfaces using the extends keyword, inheriting all of the method signatures declared by each parent interface.
+
+Abstract Classes
+
+An abstract class is declared with the abstract keyword and may contain a mix of fully implemented methods and abstract methods, which declare a signature without providing a body. A class containing at least one abstract method must itself be declared abstract, and abstract classes cannot be instantiated directly with new; they exist purely to be extended by concrete subclasses, which must then provide implementations for every abstract method inherited from the parent. Abstract classes are a natural fit whenever a group of related classes share substantial common behavior alongside a few methods that must vary per subclass, whereas interfaces are better suited to describing a capability that many otherwise unrelated classes might implement.
+
+Traits
+
+PHP addresses the absence of multiple inheritance for classes with traits, declared using the trait keyword, which are mechanisms for code reuse that let a set of methods be defined once and then mixed into any number of otherwise unrelated classes using the use keyword inside the class body. A class can use several traits at once, and if two included traits happen to declare a method with the same name, PHP requires the conflict to be resolved explicitly, either by excluding one of the conflicting methods or by aliasing it to a different name, using the insteadof and as operators inside a use block.
+
+Visibility Modifiers
+
+PHP properties and methods can be declared public, protected, or private. Public members are accessible from anywhere, including code entirely outside the class. Protected members are accessible from within the declaring class itself and from any class that extends it, but not from unrelated outside code. Private members are accessible only from within the exact class that declares them, not even from a subclass. Choosing the most restrictive visibility that still allows a class's collaborators to do their job is the same encapsulation discipline found in Java and most other object-oriented languages, and it keeps a class's true public contract clearly separated from its internal implementation details.
+
+
+PHP: Exceptions and Error Handling
+
+Source: https://www.php.net/manual/en/language.exceptions.php
+
+Overview
+
+PHP implements an exception model broadly similar to that found in other mainstream programming languages. Code that might fail is wrapped in a try block, and any exception thrown while executing that block can be caught and handled by an associated catch block. Every try block must be followed by at least one catch block, at least one finally block, or both.
+
+How Exceptions Propagate
+
+When an exception is thrown inside a function that has no matching catch block of its own, the exception bubbles up the call stack, moving out through each calling function in turn, until it finds a catch block somewhere higher up whose declared type matches the thrown object. Any finally blocks encountered along the way as the stack unwinds are still executed regardless. If the exception reaches all the way back up to the global scope without ever being caught, the script terminates with a fatal error, unless a global exception handler has been registered to intercept that situation. The object being thrown must implement the Throwable interface; attempting to throw anything else results in a fatal error. As of PHP 8.0.0, throw itself became a full expression rather than only a statement, so it can now appear, for instance, on the right-hand side of a short-circuiting boolean operator.
+
+The Try and Catch Blocks
+
+The try block simply delimits the region of code that may raise an exception; the moment an exception is thrown inside it, the rest of the try block is skipped and PHP looks for the first catch block whose declared exception type matches the object that was thrown. A single try can be followed by multiple catch blocks, each targeting a different exception type, letting different failure modes be handled with different recovery logic. Since PHP 7.1.0, a single catch block can list several exception types separated by the pipe character, which is useful when unrelated exception hierarchies should all be handled identically. Since PHP 8.0.0, the variable that captures the caught exception object is optional, so a catch block can simply declare the type it handles without needing to bind and reference the actual thrown object.
+
+The Finally Block
+
+A finally block may follow the catch blocks, or even stand in for them entirely alongside a bare try. Code inside finally always executes after the try and any catch block finish, regardless of whether an exception was thrown or caught, which makes it the natural place to release resources such as open file handles or database connections. If a return statement appears inside try or catch, PHP still runs the finally block before actually returning; and if finally itself also contains a return statement, that value silently overrides whatever value the try or catch block was about to return.
+
+The Exception Class
+
+PHP provides a base Exception class that custom exception types typically extend. It exposes getMessage to retrieve the human-readable message, getCode for a user-defined numeric code, getFile and getLine identifying where the exception was constructed, getTrace and getTraceAsString for inspecting the call stack at the point of the throw, getPrevious for walking a chain of nested exceptions, and toString for producing a formatted string representation suitable for logging. Custom, domain-specific exceptions are created simply by declaring a class that extends Exception, or, more generally, that implements the Throwable interface directly.
+
+Global Exception Handling and Error Conversion
+
+If an exception escapes all the way to the top of the call stack uncaught, set_exception_handler can register a function to be invoked in place of the missing catch block, effectively wrapping the entire program in an implicit try-catch. Internal PHP functions have traditionally reported failures through classic error reporting rather than exceptions, but a custom error handler can be installed to translate those non-fatal errors into instances of ErrorException, which lets legacy-style error reporting be caught and handled using the very same try-catch-finally machinery used for ordinary exceptions.
+
+Extending the Exception Class
+
+Custom, domain-specific exception classes are created by extending PHP's built-in Exception class, typically to attach additional context relevant to the specific failure being represented, such as which database record could not be found or which validation rule was violated. A custom exception class can override the constructor to require extra arguments beyond the standard message, code, and previous exception, while still calling the parent constructor to ensure the base Exception machinery, such as the stack trace, is populated correctly. Extending Exception rather than throwing the base class directly lets calling code use type-specific catch blocks to distinguish between different failure categories without having to inspect a message string.
+
+The Error Class Hierarchy
+
+Since PHP 7, most internal fatal errors, such as calling a method on a non-object or a type error from a strictly typed function call, are represented as instances of the Error class rather than as fatal errors that could not be caught at all. Both Exception and Error implement the shared Throwable interface, so a catch block written against Throwable can catch either kind of problem uniformly, which is useful in code such as top-level request handlers that need to guarantee they always produce a controlled response no matter what kind of failure occurred underneath. Despite this catchability, Error instances generally still represent genuine programming mistakes rather than expected, recoverable conditions, so catching them broadly should be done cautiously and mainly at boundaries like a top-level handler, not as routine control flow.
+
+SPL Exception Hierarchy
+
+The Standard PHP Library defines a small hierarchy of more specific exception classes that build on the base Exception class, including LogicException for errors that reflect a problem in the program's logic that should have been preventable, such as calling a method with invalid arguments, and RuntimeException for errors that can only be detected while the program is running, such as an out-of-range index or an unexpected value returned from an external resource. Subclasses of these two branches, such as InvalidArgumentException, OutOfRangeException, and RuntimeException's own subclasses, let application code throw and catch exceptions using well-known, standardized names instead of inventing an equivalent custom class for every project, which improves consistency across libraries and applications that all build on the same SPL conventions.
+
+Practical Error Handling Strategy
+
+A common strategy in well-structured PHP applications is to let low-level exceptions propagate up to a single, centralized point, such as a front controller or a framework's exception handler, rather than catching and handling exceptions at every possible call site throughout the codebase. Catching an exception close to where it was thrown only makes sense when that specific piece of code has a genuine, meaningful recovery action to take, such as retrying a failed network call a limited number of times; otherwise, letting the exception bubble up to a general-purpose handler that logs the error and returns an appropriate response to the end user keeps error-handling logic centralized, consistent, and much easier to audit than error handling scattered across dozens of individual try-catch blocks.

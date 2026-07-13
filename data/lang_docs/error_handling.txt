@@ -1,0 +1,442 @@
+Error Handling - Building Reliable Applications
+
+Introduction
+
+Error handling is the process of managing and responding to errors in your application. Good error handling prevents crashes, provides meaningful feedback to users, logs issues for debugging, and gracefully degrades functionality. Poor error handling leads to application crashes, security vulnerabilities, and frustrated users.
+
+Error handling involves three main aspects: preventing errors through validation, catching errors when they occur, and recovering or responding appropriately.
+
+Types of Errors
+
+Syntax Errors: Code structure is incorrect. Caught during compilation/parsing.
+
+```python
+def function(  # Missing closing parenthesis
+  pass
+```
+
+Logic Errors: Code runs but produces incorrect results. Most difficult to find.
+
+```python
+total = price - discount  # Should be +, not -
+```
+
+Runtime Errors: Occur during program execution. Can be caught and handled.
+
+```python
+result = 10 / 0  # ZeroDivisionError
+items[100]  # IndexError (list too short)
+data['key']  # KeyError (missing key)
+```
+
+Recoverable vs Unrecoverable Errors
+
+Recoverable errors can be handled and the program continues:
+- File not found: Use default file or ask user
+- Network timeout: Retry the request
+- Database connection failed: Wait and retry
+- Invalid user input: Show error message, ask for valid input
+
+Unrecoverable errors halt the program:
+- Out of memory
+- Stack overflow
+- Critical system failure
+
+Handling Strategies
+
+Try-Catch Blocks: Wrap code that might error and handle if it fails.
+
+```javascript
+try {
+  const result = dangerousOperation();
+  console.log(result);
+} catch (error) {
+  console.error('Operation failed:', error.message);
+  // Handle the error
+}
+```
+
+Default Values: Provide fallback values if operation fails.
+
+```javascript
+const config = loadConfig() || getDefaultConfig();
+const user = findUser(id) || createGuestUser();
+```
+
+Null/Option Types: Explicitly represent absence of value.
+
+```go
+func getUser(id int) (*User, error) {
+  user, err := db.Query("SELECT * FROM users WHERE id = ?", id)
+  if err != nil {
+    return nil, err
+  }
+  return user, nil
+}
+```
+
+Error Propagation: Pass errors up the call stack.
+
+```javascript
+function A() {
+  try {
+    return B();
+  } catch (error) {
+    throw new CustomError('A failed', error);
+  }
+}
+```
+
+Finally Blocks: Code that runs whether error occurred or not (cleanup).
+
+```javascript
+try {
+  const file = openFile('data.txt');
+  processFile(file);
+} catch (error) {
+  console.error('Failed:', error);
+} finally {
+  file.close();  // Always runs
+}
+```
+
+Go's Error Handling Pattern
+
+Go treats errors as return values, not exceptions:
+
+```go
+file, err := os.Open("data.txt")
+if err != nil {
+  log.Fatal(err)
+}
+defer file.Close()
+
+// Process file
+```
+
+Errors propagate up:
+
+```go
+func readData() ([]byte, error) {
+  file, err := os.Open("data.txt")
+  if err != nil {
+    return nil, fmt.Errorf("failed to open: %w", err)
+  }
+  defer file.Close()
+
+  data, err := io.ReadAll(file)
+  if err != nil {
+    return nil, fmt.Errorf("failed to read: %w", err)
+  }
+
+  return data, nil
+}
+```
+
+Java Exception Handling
+
+Java uses exceptions (thrown and caught):
+
+```java
+try {
+  int result = 10 / 0;
+} catch (ArithmeticException e) {
+  System.out.println("Cannot divide by zero");
+} finally {
+  System.out.println("Cleanup code");
+}
+```
+
+Checked exceptions must be caught or declared:
+
+```java
+public void readFile() throws IOException {
+  FileReader reader = new FileReader("file.txt");
+  // Must handle IOException or declare throws
+}
+```
+
+Python Exception Handling
+
+```python
+try:
+  with open('file.txt', 'r') as f:
+    data = f.read()
+except FileNotFoundError:
+  print("File not found")
+except IOError as e:
+  print(f"IO error: {e}")
+except Exception as e:
+  print(f"Unexpected error: {e}")
+finally:
+  print("Cleanup")
+```
+
+PHP Exception Handling
+
+```php
+try {
+  throw new Exception("Something went wrong");
+} catch (Exception $e) {
+  echo "Error: " . $e->getMessage();
+} finally {
+  echo "Cleanup";
+}
+```
+
+Custom Errors
+
+Define application-specific error types:
+
+```javascript
+class ValidationError extends Error {
+  constructor(message, field) {
+    super(message);
+    this.field = field;
+  }
+}
+
+class DatabaseError extends Error {
+  constructor(message, query) {
+    super(message);
+    this.query = query;
+  }
+}
+
+try {
+  validateEmail(email);
+} catch (error) {
+  if (error instanceof ValidationError) {
+    console.error(`Invalid field: ${error.field}`);
+  }
+}
+```
+
+HTTP Error Responses
+
+Web APIs return errors with appropriate status codes:
+
+2xx: Success
+- 200 OK: Request succeeded
+- 201 Created: Resource created
+- 204 No Content: Success, no content
+
+4xx: Client errors
+- 400 Bad Request: Malformed request
+- 401 Unauthorized: Authentication required
+- 403 Forbidden: Not authorized
+- 404 Not Found: Resource doesn't exist
+- 422 Unprocessable Entity: Validation failed
+- 429 Too Many Requests: Rate limit exceeded
+
+5xx: Server errors
+- 500 Internal Server Error: Unexpected error
+- 503 Service Unavailable: Server down
+
+Error responses should include meaningful error messages:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "Request validation failed",
+    "details": [
+      {
+        "field": "email",
+        "message": "Invalid email format"
+      }
+    ]
+  }
+}
+```
+
+Defensive Programming
+
+Validate inputs early: Don't let bad data propagate
+
+```javascript
+function divide(a, b) {
+  if (!Number.isFinite(a) || !Number.isFinite(b)) {
+    throw new Error('Arguments must be finite numbers');
+  }
+  if (b === 0) {
+    throw new Error('Cannot divide by zero');
+  }
+  return a / b;
+}
+```
+
+Use assertions: Verify assumptions during development
+
+```python
+def process_list(items):
+  assert items is not None, "items cannot be None"
+  assert len(items) > 0, "items cannot be empty"
+  # Process items
+```
+
+Fail fast: Catch errors as early as possible
+
+```javascript
+function getUserData(userId) {
+  if (!userId) throw new Error('userId is required');
+  if (typeof userId !== 'number') throw new Error('userId must be number');
+  // Now safe to query database
+}
+```
+
+Error Logging and Monitoring
+
+Log errors with context:
+
+```javascript
+try {
+  processPayment(order);
+} catch (error) {
+  console.error({
+    message: error.message,
+    stack: error.stack,
+    orderId: order.id,
+    userId: order.userId,
+    timestamp: new Date().toISOString()
+  });
+  // Send to error tracking service
+  Sentry.captureException(error);
+}
+```
+
+Different levels of logging:
+
+ERROR: Something failed, action required. Log and send alert.
+WARN: Something unexpected, but application continues. Monitor for patterns.
+INFO: Significant events (user login, payment processed). Useful for auditing.
+DEBUG: Detailed information for developers. Disable in production.
+
+Graceful Degradation
+
+When errors occur, degrade functionality rather than failing completely:
+
+```javascript
+async function getUser(id) {
+  try {
+    const user = await database.query('SELECT * FROM users WHERE id = ?', id);
+    return user;
+  } catch (error) {
+    console.warn('Database error, returning cached user');
+    return cache.getUser(id);
+  }
+}
+```
+
+Circuit Breaker Pattern: Prevent cascading failures
+
+```javascript
+class CircuitBreaker {
+  constructor(operation, threshold = 5) {
+    this.operation = operation;
+    this.failureCount = 0;
+    this.threshold = threshold;
+    this.state = 'CLOSED';  // CLOSED, OPEN, HALF_OPEN
+  }
+
+  async call(...args) {
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailureTime > 60000) {
+        this.state = 'HALF_OPEN';
+      } else {
+        throw new Error('Circuit breaker is OPEN');
+      }
+    }
+
+    try {
+      const result = await this.operation(...args);
+      this.failureCount = 0;
+      this.state = 'CLOSED';
+      return result;
+    } catch (error) {
+      this.failureCount++;
+      this.lastFailureTime = Date.now();
+      if (this.failureCount >= this.threshold) {
+        this.state = 'OPEN';
+      }
+      throw error;
+    }
+  }
+}
+```
+
+Testing Error Handling
+
+Unit test normal operation:
+```javascript
+test('divide returns correct result', () => {
+  expect(divide(10, 2)).toBe(5);
+});
+```
+
+Unit test error cases:
+```javascript
+test('divide throws on zero divisor', () => {
+  expect(() => divide(10, 0)).toThrow();
+});
+```
+
+Integration test error recovery:
+```javascript
+test('retries on network error', async () => {
+  mockFetch.mockRejectedOnce(new Error('Network error'));
+  mockFetch.mockResolvedOnce(data);
+
+  const result = await fetchWithRetry('/api/data');
+  expect(result).toEqual(data);
+  expect(mockFetch).toHaveBeenCalledTimes(2);
+});
+```
+
+Error Handling Best Practices
+
+Catch specific errors, not generic Error: Allows proper handling of different error types
+Don't ignore errors: Catching silently can hide serious issues
+Provide context: Include relevant data when logging/reporting errors
+Use appropriate error types: Custom errors convey intent
+Fail fast: Validate early and throw errors immediately
+Graceful degradation: Maintain functionality when possible
+Log with context: Include user ID, request ID, timestamps
+Monitor errors: Track error frequencies and patterns
+Communicate clearly: User-friendly error messages
+Test error cases: Write tests specifically for error conditions
+
+Common Mistakes
+
+Swallowing exceptions: Catching errors but not handling them
+
+```python
+try:
+  dangerous_operation()
+except:
+  pass  # BAD! Error is hidden
+```
+
+Too broad exception handling: Catching Exception catches everything
+
+```python
+try:
+  specific_operation()
+except Exception:  # Too broad
+  pass
+```
+
+Not logging enough context: Messages don't help debugging
+
+```python
+except DatabaseError:
+  print("Database error")  # What happened? Which query?
+```
+
+Leaking internal details: Exposing stack traces to users
+
+```javascript
+res.status(500).json({error: error.stack});  // Reveals system info
+```
+
+Error handling is not optional - it's fundamental to reliable software. Proper error handling improves resilience, debuggability, and user experience.

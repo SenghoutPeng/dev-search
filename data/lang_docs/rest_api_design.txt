@@ -1,0 +1,305 @@
+REST API Design - Principles and Best Practices
+
+Introduction
+
+REST (Representational State Transfer) is an architectural style for designing networked applications. It emphasizes designing APIs around resources (nouns) and standard HTTP methods (verbs) rather than arbitrary RPC-style procedures. A well-designed REST API is intuitive, follows predictable patterns, and leverages HTTP effectively.
+
+Core REST Principles
+
+Resource-Oriented Design: REST APIs are built around resources that can be identified by URIs. A resource could be a user, a blog post, a product, or any noun in your domain. Each resource has a unique identifier (usually a URI), and clients interact with resources through standard HTTP methods.
+
+Representation: Resources are represented in formats like JSON or XML. A single resource can have multiple representations. For example, a user resource might be available as JSON, XML, or even CSV depending on the Accept header.
+
+Statelessness: Each request contains all information needed to understand and process it. The server doesn't store client context between requests. This enables horizontal scaling and simplifies server implementation.
+
+Standard Methods: Use HTTP methods for operations:
+- GET retrieves a resource without side effects
+- POST creates a new resource
+- PUT replaces an entire resource
+- PATCH partially updates a resource
+- DELETE removes a resource
+
+HTTP Status Codes: Responses use standard HTTP status codes to indicate success or failure:
+- 2xx for success (200 OK, 201 Created, 204 No Content)
+- 3xx for redirects
+- 4xx for client errors (400 Bad Request, 401 Unauthorized, 404 Not Found)
+- 5xx for server errors
+
+Hypermedia: Resources can include links to related resources, enabling client navigation without prior knowledge of the API structure. HATEOAS (Hypermedia As The Engine Of Application State) is an advanced REST concept.
+
+Resource Naming and URI Design
+
+Resource URIs should use nouns representing entities, not verbs representing actions. URIs form a hierarchy representing relationships.
+
+Good REST URI examples:
+GET /users - retrieve all users
+GET /users/123 - retrieve user with ID 123
+GET /users/123/posts - retrieve all posts by user 123
+GET /users/123/posts/456 - retrieve specific post by specific user
+POST /users - create a new user
+PUT /users/123 - replace user 123
+PATCH /users/123 - partially update user 123
+DELETE /users/123 - delete user 123
+
+Poor REST URI examples (action-based, not resource-based):
+GET /getUsers
+GET /createUser
+GET /updateUser
+GET /deleteUser
+GET /getUserPosts
+
+Guidelines for URI design:
+- Use lowercase letters in URIs
+- Use hyphens to separate words, not underscores
+- Use plural nouns for collection resources (e.g., /users not /user)
+- Use resource IDs to represent hierarchy (e.g., /users/123/posts/456)
+- Avoid deep nesting; typically 2-3 levels is maximum
+- Keep URIs consistent across your API
+
+Query Parameters
+
+Use query parameters for filtering, sorting, pagination, and optional parameters. They represent operations on the collection, not nested resources.
+
+Examples:
+GET /users?page=2&limit=20 - pagination
+GET /users?status=active - filtering
+GET /users?sort=-created_at - sorting (descending by created_at)
+GET /users?search=john - searching
+GET /posts?author=123&category=tech - multiple filters
+GET /users/123/posts?limit=10&offset=20 - sorting collection results
+
+Common Query Parameter Patterns:
+
+Pagination:
+- page: page number (1-indexed)
+- limit or per_page: items per page
+- offset: number of items to skip
+- cursor: for cursor-based pagination (more efficient for large datasets)
+
+Sorting:
+- sort: field name (positive) or -field name (negative/descending)
+- order: asc or desc
+
+Filtering:
+- Include field names with values to filter by that field
+- Support operators: field[gte]=100, field[lt]=200
+- Support multiple filters
+
+Searching:
+- search or q: text search term
+
+Request and Response Bodies
+
+Request bodies for POST and PUT methods contain the resource data in JSON format:
+
+Creating a new user:
+POST /users
+Content-Type: application/json
+
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "age": 30
+}
+
+Updating a user:
+PUT /users/123
+Content-Type: application/json
+
+{
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "age": 31
+}
+
+Partial update:
+PATCH /users/123
+Content-Type: application/json
+
+{
+  "age": 32
+}
+
+Response bodies also use JSON:
+
+Successful creation (201 status):
+{
+  "id": 123,
+  "name": "John Doe",
+  "email": "john@example.com",
+  "age": 30,
+  "created_at": "2025-07-13T10:30:00Z"
+}
+
+Collection response:
+{
+  "data": [
+    {"id": 1, "name": "User One"},
+    {"id": 2, "name": "User Two"}
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 100
+  }
+}
+
+Error response:
+{
+  "error": {
+    "code": "INVALID_EMAIL",
+    "message": "Email format is invalid",
+    "field": "email"
+  }
+}
+
+HTTP Status Codes in REST APIs
+
+2xx Success:
+- 200 OK: General success response for GET, PUT, PATCH
+- 201 Created: Resource successfully created via POST
+- 202 Accepted: Asynchronous request accepted for processing
+- 204 No Content: Successful DELETE, or operations that return no data
+
+4xx Client Error:
+- 400 Bad Request: Malformed request, missing required fields
+- 401 Unauthorized: Authentication required, credentials not provided
+- 403 Forbidden: Authenticated but not authorized for this resource
+- 404 Not Found: Resource doesn't exist
+- 405 Method Not Allowed: HTTP method not supported (e.g., DELETE on read-only resource)
+- 409 Conflict: Request conflicts with current state
+- 422 Unprocessable Entity: Request valid syntax but contains semantic errors
+- 429 Too Many Requests: Rate limit exceeded
+
+5xx Server Error:
+- 500 Internal Server Error: Generic server error
+- 503 Service Unavailable: Server temporarily down
+
+Versioning
+
+APIs evolve over time. Versioning allows clients to continue using old implementations while new clients use new versions.
+
+Versioning strategies:
+
+URL versioning (most common in REST):
+GET /v1/users
+GET /v2/users
+
+Header versioning:
+GET /users
+Accept: application/vnd.myapi.v1+json
+
+Query parameter versioning:
+GET /users?api_version=v1
+
+Avoid versioning if possible by designing for backwards compatibility. When you must version, keep older versions supported for a deprecation period (e.g., 6-12 months).
+
+Error Handling
+
+All errors should include a status code, error code, and human-readable message:
+
+4xx errors are client's fault:
+POST /users
+Content-Type: application/json
+
+{"email": "invalid-email"}
+
+Response:
+422 Unprocessable Entity
+{
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "Validation failed",
+    "details": [
+      {
+        "field": "email",
+        "message": "Invalid email format"
+      }
+    ]
+  }
+}
+
+Missing required authentication:
+GET /users/123
+
+Response:
+401 Unauthorized
+{
+  "error": {
+    "code": "MISSING_AUTHENTICATION",
+    "message": "Authentication required. Provide Authorization header"
+  }
+}
+
+5xx errors are server's fault:
+GET /users/123
+
+Response:
+500 Internal Server Error
+{
+  "error": {
+    "code": "INTERNAL_ERROR",
+    "message": "An unexpected error occurred. Try again later.",
+    "trace_id": "abc123"
+  }
+}
+
+Rate Limiting
+
+Inform clients about rate limits using headers:
+
+X-RateLimit-Limit: 1000 (requests allowed per window)
+X-RateLimit-Remaining: 999 (requests remaining)
+X-RateLimit-Reset: 1626184200 (Unix timestamp when limit resets)
+
+When limit exceeded:
+429 Too Many Requests
+{
+  "error": {
+    "code": "RATE_LIMIT_EXCEEDED",
+    "message": "Too many requests. Try again after 60 seconds"
+  }
+}
+
+Authentication in REST APIs
+
+Use standard HTTP authentication mechanisms:
+
+Bearer tokens (JWT or OAuth):
+GET /users
+Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+
+Basic authentication (username:password encoded):
+GET /users
+Authorization: Basic am9objpwYXNzd29yZA==
+
+API keys:
+GET /users?api_key=sk_live_abc123
+
+Prefer Bearer tokens for modern APIs as they provide better flexibility.
+
+Documentation
+
+Document your API with:
+- Overview of what the API does
+- Authentication method
+- Base URL for endpoints
+- Available endpoints with methods, parameters, responses
+- Error codes and meanings
+- Rate limits
+- Examples of requests and responses
+- Client libraries if available
+
+Tools like OpenAPI/Swagger help standardize API documentation.
+
+Backwards Compatibility
+
+Design for evolution from the start:
+- Be liberal in what you accept (ignore unknown fields in requests)
+- Be conservative in what you send (only send necessary fields in responses)
+- Use additive changes (add fields, don't remove them)
+- Don't change existing field meanings
+- Provide deprecation notices before removing features
+- Support multiple API versions during transition
+
+REST API design is about creating intuitive, consistent, and maintainable interfaces that clients can easily understand and use. Following these principles leads to better APIs.

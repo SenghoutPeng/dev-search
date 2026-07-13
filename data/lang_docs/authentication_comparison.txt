@@ -1,0 +1,73 @@
+Authentication Comparison - Laravel, Spring Boot, and Gin in Practice
+
+Introduction
+
+Authentication and authorization answer two different questions — "who are you" and "what can you do" — and every backend framework has to answer both, but Laravel, Spring Boot, and Gin take three quite different approaches to providing the machinery. Laravel ships a configurable authentication system plus first-party packages (Sanctum, Passport) for API tokens and OAuth2. Spring Boot relies on Spring Security, a mature, filter-chain-based security framework with deep annotation support. Gin has no built-in authentication at all, so a Gin project typically hand-rolls JWT-checking middleware or reaches for a third-party Go package. Understanding these three approaches side by side clarifies both how much a framework can do for you and what you still have to design yourself.
+
+Laravel: Guards, Sanctum, and Passport
+
+Laravel's authentication is organized around guards (how a request proves its identity — session-based for traditional web routes, token-based for APIs) and providers (how users are actually looked up, typically via an Eloquent model), both configured in `config/auth.php`. For a traditional session-based web application, the flow is built around the `Auth` facade:
+
+```php
+if (Auth::attempt($credentials)) {
+    $request->session()->regenerate();
+    return redirect()->intended('dashboard');
+}
+```
+
+`Auth::attempt` checks the given credentials against the configured user provider, and on success establishes a session; calling `session()->regenerate()` afterward is a deliberate defense against session fixation attacks. Protecting a route is a single middleware attachment: `Route::get('/flights', ...)->middleware('auth')`, and an unauthenticated request is automatically redirected to the login route (customizable via `redirectGuestsTo`).
+
+For APIs, Laravel's official Sanctum package provides a lightweight token authentication guard, installed via `php artisan install:api`, which also scaffolds a `routes/api.php` file whose routes are stateless and prefixed with `/api` by default; a Sanctum-protected route uses `->middleware('auth:sanctum')` in place of the plain `auth` middleware. Sanctum is designed specifically for first-party SPAs and simple token-issuing APIs, not for full OAuth2 delegation. When an application needs to act as a full OAuth2 authorization server — issuing scoped tokens to third-party client applications — Laravel's separate Passport package fills that role.
+
+Authorization in Laravel is handled by a distinct but complementary layer: Gates (closures for actions unrelated to a specific model, such as viewing an admin dashboard) and Policies (classes organizing per-model authorization logic, such as a `PostPolicy` with an `update` method checking `$user->id === $post->user_id`). Both integrate with the `can` middleware (`->middleware('can:update,post')`) and with Blade templates (`@can('update', $post)`), giving Laravel a full authentication-plus-authorization story with essentially no third-party dependencies for the common cases.
+
+Spring Boot: Spring Security's Filter Chain
+
+Spring Security is built around a chain of servlet filters that every incoming request passes through before it reaches a controller, configured declaratively through a `SecurityFilterChain` bean:
+
+```java
+@Configuration
+public class SecurityConfig {
+  @Bean
+  public SecurityFilterChain securityFilterChain(HttpSecurity http) {
+    http.authorizeRequests()
+      .antMatchers("/admin/**").hasRole("ADMIN")
+      .antMatchers("/api/**").authenticated()
+      .and().formLogin();
+    return http.build();
+  }
+}
+```
+
+This filter-chain model is structurally similar to Gin's or Laravel's middleware pipelines, but it operates at the servlet container level, beneath Spring MVC's own controller dispatch, and is configured centrally rather than attached per-route in application code. Spring Security supports both session-based authentication (form login, HTTP Basic) and token-based authentication (bearer JWTs validated by a resource-server configuration), and integrates with Spring's dependency injection so custom `UserDetailsService` implementations (Spring's abstraction for "how do I load a user by username") can be swapped in without touching the filter chain configuration itself.
+
+Where Spring Security distinguishes itself most is in annotation-based method security, letting authorization rules be declared directly on service or controller methods rather than solely in the central filter chain configuration: an annotation like `@PreAuthorize("hasRole('ADMIN')")` on a service method enforces that check before the method body runs, wherever in the codebase that method happens to be called from. Combined with role- and permission-based checks that integrate with the same Spring Data JPA entities used elsewhere in the application, this gives Spring Boot a security model that is simultaneously centrally configurable (the filter chain) and locally declarable (method-level annotations), which suits large codebases where different teams own different service methods but need consistent, auditable authorization enforcement.
+
+Gin: Manual JWT Middleware
+
+Gin ships with no authentication concept whatsoever — no guards, no filter chain, no annotations. A Gin project builds its own authentication entirely out of ordinary middleware functions, most commonly by validating a JWT passed in the Authorization header:
+
+```go
+func AuthMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        token := c.GetHeader("Authorization")
+        user, err := validateToken(token)
+        if err != nil {
+            c.AbortWithStatusJSON(401, gin.H{"error": "invalid token"})
+            return
+        }
+        c.Set("user", user)
+        c.Next()
+    }
+}
+```
+
+This middleware is then attached exactly like any other Gin middleware — globally with `router.Use(AuthMiddleware())`, to a route group with `group.Use(AuthMiddleware())`, or per-route as an extra handler argument — and downstream handlers retrieve the authenticated user with `c.MustGet("user").(*User)`. The actual JWT verification logic (checking the signature, expiration, and claims) is typically implemented using a third-party Go JWT library rather than anything Gin itself provides, and role-based authorization is usually just another middleware function checking a claim or a database-loaded role, chained after the authentication middleware on protected routes or groups.
+
+This DIY approach means a Gin team makes every decision explicitly: which JWT library, which signing algorithm (HS256 for a single server sharing one secret, RS256 if multiple services need to verify tokens without holding the signing key), how tokens are refreshed, and how revocation is handled, since JWTs cannot be invalidated before their expiration without extra infrastructure like a denylist. There is no equivalent to Laravel's Sanctum or Spring Security's `UserDetailsService` abstraction bundled in — every Gin project's authentication layer is, in effect, a bespoke implementation, though the overall shape (validate token, attach user to context, check on every protected route) converges across projects since it is dictated more by JWT and OAuth2 as protocols than by any particular framework's conventions.
+
+Comparing the Three Approaches
+
+Laravel's approach optimizes for a small team wanting authentication that works immediately with minimal configuration; Sanctum and Passport cover the two most common needs (simple API tokens and full OAuth2 delegation) as installable, well-integrated first-party packages, and Gates/Policies provide authorization without requiring any third-party dependency at all. Spring Security's approach optimizes for large, security-sensitive organizations that need centralized, auditable configuration of who can access what, expressed simultaneously at the network filter level and at the method level, at the cost of a steeper initial learning curve around the filter chain and its many configuration options. Gin's approach optimizes for teams that want zero framework opinion about authentication, either because they have specific requirements that don't fit an off-the-shelf solution or because they simply prefer full control over every dependency in a performance-sensitive service — the tradeoff being that every Gin project reinvents the same JWT-middleware wheel rather than inheriting a shared, well-tested implementation.
+
+Across all three, the underlying protocol-level concepts stay constant: passwords are hashed and compared, not stored or compared in plain text; JWTs are validated for signature and expiration on every request rather than trusted blindly; and authorization is checked server-side on every request regardless of what a client-side template or view conditionally rendered. What differs is how much of that machinery the framework builds for you versus how much you assemble yourself, and how centrally versus locally the resulting authorization rules end up being expressed in the codebase.

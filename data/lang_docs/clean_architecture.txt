@@ -1,0 +1,119 @@
+Clean Architecture - The Dependency Rule and Testable Design
+
+Introduction
+
+Clean Architecture is an architectural style, popularized by Robert C. Martin, that organizes an application into concentric layers with a single, strictly enforced rule governing how those layers may depend on one another: source code dependencies can only point inward, toward higher-level policy, never outward toward lower-level detail. The goal is a system where business rules are completely independent of frameworks, databases, and UI technology, making the core of the application testable and adaptable without those details leaking into it.
+
+The Dependency Rule
+
+The central rule of Clean Architecture is that nothing in an inner circle can know anything at all about something in an outer circle. In particular, the name of something declared in an outer circle must not appear in the code of an inner circle. This includes functions, classes, variables, or any other named software entity. Concretely, this means business logic must never import a specific database driver, a specific web framework's request object, or a specific external API client directly — those are all outer-circle details, and the inner circle must remain ignorant of them.
+
+This is achieved primarily through the Dependency Inversion Principle: inner layers define interfaces (abstractions) describing what they need, and outer layers provide concrete implementations of those interfaces. The inner layer depends only on its own interface definition, never on the outer layer's concrete implementation, even though at runtime the concrete implementation is what actually gets used.
+
+The Four Concentric Layers
+
+Entities
+
+At the center sit entities: objects encapsulating enterprise-wide business rules, the most general and highest-level rules in the whole system. An entity could be an object with methods, or a set of data structures and functions, and it captures logic that would be true regardless of which specific application uses it. Entities are the least likely layer to change when something external changes, such as a new page in the UI or a switched database.
+
+Use Cases
+
+Surrounding entities is the use cases layer, containing application-specific business rules. A use case orchestrates the flow of data to and from entities, directing them to use their enterprise-wide business rules to achieve a particular goal specific to this application, such as "register a new user" or "transfer funds between two accounts." Use cases are expected to change if the specific behavior of the application changes, but they should be unaffected by changes to external concerns like the database schema or the UI framework.
+
+Interface Adapters
+
+The interface adapters layer is a set of adapters that convert data from the format most convenient for use cases and entities into the format most convenient for some external agency such as a database or a web framework, and vice versa. This is where controllers, presenters, and gateways live: a controller adapts an incoming HTTP request into a plain call to a use case, and a gateway (often implemented as a repository) adapts a use case's data requests into actual database queries, hidden behind an interface that the use case layer defined.
+
+Frameworks and Drivers
+
+The outermost layer contains frameworks and tools such as the actual database engine, the web framework, and any external delivery mechanism. This layer is composed of glue code that communicates to the next circle inward, and generally, not much code is written here other than that glue code — it's where all the volatile, technology-specific detail lives, kept as far as possible from the stable business rules at the center.
+
+A Concrete Example
+
+Consider a use case for placing an order. The use case layer defines an interface describing what it needs from persistence, without specifying how that persistence is implemented:
+
+```go
+// Use case layer defines the interface it needs (Go)
+type OrderRepository interface {
+    Save(order Order) error
+    FindByID(id string) (Order, error)
+}
+
+type PlaceOrderUseCase struct {
+    repo OrderRepository
+}
+
+func (uc *PlaceOrderUseCase) Execute(input PlaceOrderInput) (Order, error) {
+    order := NewOrder(input.CustomerID, input.Items)
+    if err := order.Validate(); err != nil {
+        return Order{}, err
+    }
+    if err := uc.repo.Save(order); err != nil {
+        return Order{}, err
+    }
+    return order, nil
+}
+```
+
+The concrete implementation of OrderRepository, backed by a specific database (say, GORM against PostgreSQL), lives in the outer frameworks-and-drivers layer:
+
+```go
+// Interface adapter / frameworks layer implements the interface
+type GormOrderRepository struct {
+    db *gorm.DB
+}
+
+func (r *GormOrderRepository) Save(order Order) error {
+    return r.db.Create(&order).Error
+}
+
+func (r *GormOrderRepository) FindByID(id string) (Order, error) {
+    var order Order
+    err := r.db.First(&order, "id = ?", id).Error
+    return order, err
+}
+```
+
+Crucially, PlaceOrderUseCase never imports gorm or knows that PostgreSQL is involved at all — it only knows about the OrderRepository interface it declared itself. Swapping GormOrderRepository for an in-memory fake implementation during testing, or for a completely different database technology in production, requires no change whatsoever to the use case code.
+
+Why Testability Improves
+
+Because business rules (entities and use cases) depend only on interfaces they themselves define, and never on concrete outer-layer implementations, tests for business logic can substitute a lightweight fake or mock implementing those same interfaces, with no real database, no real HTTP server, and no real external service involved:
+
+```go
+type FakeOrderRepository struct {
+    orders map[string]Order
+}
+
+func (f *FakeOrderRepository) Save(order Order) error {
+    f.orders[order.ID] = order
+    return nil
+}
+
+func (f *FakeOrderRepository) FindByID(id string) (Order, error) {
+    order, ok := f.orders[id]
+    if !ok {
+        return Order{}, ErrNotFound
+    }
+    return order, nil
+}
+
+func TestPlaceOrderUseCase(t *testing.T) {
+    repo := &FakeOrderRepository{orders: map[string]Order{}}
+    uc := &PlaceOrderUseCase{repo: repo}
+    _, err := uc.Execute(PlaceOrderInput{CustomerID: "c1", Items: someItems})
+    if err != nil {
+        t.Fatalf("expected success, got %v", err)
+    }
+}
+```
+
+This test runs in memory, with no network calls, no database setup or teardown, and executes in milliseconds, yet still exercises the real business logic in PlaceOrderUseCase.Execute exactly as it would run in production.
+
+Clean Architecture vs Plain Layered Architecture
+
+A conventional layered architecture typically has the data access layer depend on nothing, the business layer depend on the data access layer, and the presentation layer depend on the business layer — a straightforward downward dependency chain where each layer directly depends on the concrete layer below it. Clean Architecture inverts the dependency between business logic and data access specifically: the use case layer defines the interface, and the data access implementation depends on (implements) that interface, rather than the use case layer depending directly on a concrete repository class. The practical difference is that in Clean Architecture, business logic can be compiled, tested, and reasoned about without the data access layer's concrete code existing or even being written yet, whereas in a plain layered architecture, the business layer typically imports and directly calls the concrete repository implementation.
+
+Tradeoffs
+
+Clean Architecture's strict separation adds structural overhead: more interfaces, more files, and an extra step of mentally tracking which layer a given piece of code belongs in. For a small CRUD application with modest business logic, this ceremony may outweigh its benefits, and a simpler layered architecture may be perfectly adequate. Clean Architecture tends to pay off most clearly in larger systems with substantial, evolving business logic, multiple delivery mechanisms (a REST API and a background worker, for instance), or a genuine need to swap out infrastructure (databases, external services) without touching core logic.

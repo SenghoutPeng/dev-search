@@ -1,0 +1,653 @@
+Laravel: Queues
+
+Source: https://laravel.com/docs/12.x/queues
+
+Introduction
+
+Laravel queues enable time-intensive tasks, like sending an email or processing an uploaded file, to be deferred to a background process instead of blocking the current web request. This keeps HTTP responses fast and improves perceived application performance. Laravel supports several queue backends including Amazon SQS, Redis, a relational database, Beanstalkd, a synchronous driver useful for local development, and a null driver that discards jobs entirely, useful in tests. Queue connection configuration lives in config/queue.php.
+
+Connections vs. Queues
+
+Connections define which backend service handles the queue (Redis, SQS, and so on), while queues are distinct named stacks within a single connection, letting you separate work by priority or type even when they share one backend. Each connection config has a default queue:
+
+// Job sent to default queue
+ProcessPodcast::dispatch();
+
+// Job sent to "emails" queue
+ProcessPodcast::dispatch()->onQueue('emails');
+
+Workers can be told to prioritize certain named queues over others:
+
+php artisan queue:work --queue=high,default
+
+Creating Jobs
+
+Generate a job class with:
+
+php artisan make:job ProcessPodcast
+
+Job classes implement ShouldQueue and use the Queueable trait. Dependencies passed into the constructor are automatically serialized (Eloquent models are stored by ID and re-fetched when the job runs) and can be type-hinted directly on the handle method to have them resolved via the container at execution time:
+
+class ProcessPodcast implements ShouldQueue
+{
+    use Queueable;
+
+    public function construct(
+        public Podcast $podcast,
+    ) {}
+
+    public function handle(AudioProcessor $processor): void
+    {
+        // Process uploaded podcast...
+    }
+}
+
+Handling Relationships
+
+To avoid serializing a model's loaded relationships along with the model itself (which bloats the queue payload), call withoutRelations, or use the WithoutRelations attribute:
+
+public function construct(
+    Podcast $podcast,
+) {
+    $this->podcast = $podcast->withoutRelations();
+}
+
+Unique Jobs
+
+Implement ShouldBeUnique to prevent duplicate copies of the same logical job from being queued simultaneously:
+
+class UpdateSearchIndex implements ShouldQueue, ShouldBeUnique
+{
+    public $uniqueFor = 3600;
+
+    public function uniqueId(): string
+    {
+        return $this->product->id;
+    }
+}
+
+Encrypted Jobs
+
+Implement ShouldBeEncrypted so the job's serialized payload is automatically encrypted at rest in the queue backend, which matters if a job carries sensitive data.
+
+Job Middleware
+
+Job middleware wraps custom logic around a job's execution, cutting down on repeated boilerplate inside handle. Attach middleware by defining a middleware method on the job:
+
+use App\Jobs\Middleware\RateLimited;
+
+public function middleware(): array
+{
+    return [new RateLimited];
+}
+
+Rate Limiting
+
+Define named rate limiters in AppServiceProvider, then apply them via the built-in RateLimited middleware:
+
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Support\Facades\RateLimiter;
+
+public function boot(): void
+{
+    RateLimiter::for('backups', function (object $job) {
+        return $job->user->vipCustomer()
+            ? Limit::none()
+            : Limit::perHour(1)->by($job->user->id);
+    });
+}
+
+public function middleware(): array
+{
+    return [new RateLimited('backups')];
+}
+
+Preventing Overlaps
+
+Use WithoutOverlapping to prevent the same job (keyed by an identifier you supply, often a user or resource ID) from running concurrently:
+
+use Illuminate\Queue\Middleware\WithoutOverlapping;
+
+public function middleware(): array
+{
+    return [new WithoutOverlapping($this->user->id)];
+}
+
+Throttling Exceptions
+
+To back off automatically when a downstream service is unstable, use ThrottlesExceptions along with a retryUntil method:
+
+use Illuminate\Queue\Middleware\ThrottlesExceptions;
+
+public function middleware(): array
+{
+    return [new ThrottlesExceptions(10, 5 * 60)];
+}
+
+public function retryUntil(): DateTime
+{
+    return now()->plus(minutes: 30);
+}
+
+Dispatching Jobs
+
+use App\Jobs\ProcessPodcast;
+
+ProcessPodcast::dispatch($podcast);
+
+// Conditional dispatch
+ProcessPodcast::dispatchIf($accountActive, $podcast);
+ProcessPodcast::dispatchUnless($accountSuspended, $podcast);
+
+Delayed Dispatching
+
+ProcessPodcast::dispatch($podcast)
+    ->delay(now()->plus(minutes: 10));
+
+Synchronous Dispatching
+
+To run a job immediately, in the current process, bypassing the queue entirely — useful for testing or for jobs whose queued/synchronous behavior needs to be interchangeable:
+
+ProcessPodcast::dispatchSync($podcast);
+
+Jobs and Database Transactions
+
+If a job is dispatched from inside a database transaction, it may start running before the transaction commits, and end up operating on data that isn't actually persisted yet. Set after_commit on the queue connection config, or call afterCommit explicitly per-dispatch, to defer dispatching until the enclosing transaction has committed:
+
+ProcessPodcast::dispatch($podcast)->afterCommit();
+
+Job Chaining
+
+Chain jobs to run sequentially, where each job only starts after the previous one in the chain succeeds:
+
+use Illuminate\Support\Facades\Bus;
+
+Bus::chain([
+    new ProcessPodcast,
+    new OptimizePodcast,
+    new ReleasePodcast,
+])->dispatch();
+
+Bus::chain([/* ... */])
+    ->catch(function (Throwable $e) {
+        // Handle chain failure
+    })
+    ->dispatch();
+
+If any job in the chain fails, subsequent jobs in the chain are not executed, and the catch callback lets you react to that failure centrally.
+
+Max Job Attempts and Timeout
+
+php artisan queue:work --tries=3
+php artisan queue:work --timeout=30
+
+class ProcessPodcast implements ShouldQueue
+{
+    public $tries = 5;
+    public $timeout = 120;
+    public $maxExceptions = 3;
+}
+
+Running the Queue Worker
+
+php artisan queue:work
+
+Common worker options include --tries, --timeout, --sleep (idle wait time between polls when the queue is empty), --max-jobs (restart the worker after processing N jobs, guarding against memory leaks in long-running PHP processes), and --max-time (restart after running for a given number of seconds). In production, workers are typically supervised by a process manager so they automatically restart if they crash or are recycled.
+
+
+Laravel: Events and Listeners
+
+Source: https://laravel.com/docs/12.x/events
+
+Introduction
+
+Laravel's events system implements a simple observer pattern, letting you subscribe and listen for various events that occur within your application. Event classes are typically stored in app/Events, and listeners in app/Listeners. Events serve as a great way to decouple various aspects of your application, since a single event can have multiple listeners that don't depend on each other — for example, when an order ships, you might want to send a Slack notification and also update analytics, without those two side effects being aware of each other.
+
+Generating Events and Listeners
+
+php artisan make:event PodcastProcessed
+php artisan make:listener SendPodcastNotification --event=PodcastProcessed
+
+Registering Events and Listeners
+
+Event Discovery
+
+By default, Laravel automatically finds and registers event listeners by scanning your application's Listeners directory. Laravel finds listener methods that begin with handle or invoke, and matches them to the events type-hinted in their method signature — no manual registration array is needed for straightforward cases.
+
+Manually Registering Events
+
+For events that live outside the standard discovery locations, you may manually register them in the boot method of a service provider using the Event facade:
+
+use App\Events\PodcastProcessed;
+use App\Listeners\SendPodcastNotification;
+use Illuminate\Support\Facades\Event;
+
+public function boot(): void
+{
+    Event::listen(
+        PodcastProcessed::class,
+        SendPodcastNotification::class,
+    );
+}
+
+Closure Listeners
+
+Instead of a dedicated listener class, you can register a closure directly:
+
+use App\Events\PodcastProcessed;
+use Illuminate\Support\Facades\Event;
+
+Event::listen(function (PodcastProcessed $event) {
+    // ...
+});
+
+Defining Events
+
+An event class is essentially a data container holding the information related to the event. Here's an example event about an order shipment:
+
+<?php
+
+namespace App\Events;
+
+use App\Models\Order;
+use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+class OrderShipped
+{
+    use Dispatchable, InteractsWithSockets, SerializesModels;
+
+    public function construct(
+        public Order $order,
+    ) {}
+}
+
+This event class contains no logic on its own — it's simply a container for the Order instance that was purchased. The SerializesModels trait uses PHP's Serializable interface to gracefully serialize any Eloquent models the event contains, so they can be safely queued.
+
+Defining Listeners
+
+Listeners receive event instances in their handle method's constructor-injected argument. Inside handle, you may perform any actions necessary to respond to the event:
+
+<?php
+
+namespace App\Listeners;
+
+use App\Events\OrderShipped;
+
+class SendShipmentNotification
+{
+    public function construct() {}
+
+    public function handle(OrderShipped $event): void
+    {
+        // Access the order using $event->order...
+    }
+}
+
+Your event listeners may also type-hint any dependencies they need on their constructor, and they will automatically be injected via the Laravel service container.
+
+Queued Event Listeners
+
+Queuing listeners is beneficial if your listener is going to perform a slow task such as sending an email or making an HTTP request. Before using queued listeners, make sure to configure your queue and start a queue worker. To specify that a listener should be queued, add the ShouldQueue interface to the listener class:
+
+<?php
+
+namespace App\Listeners;
+
+use App\Events\OrderShipped;
+use Illuminate\Contracts\Queue\ShouldQueue;
+
+class SendShipmentNotification implements ShouldQueue
+{
+    public function handle(OrderShipped $event): void
+    {
+        // ...
+    }
+}
+
+Once this interface has been added, the listener will automatically be dispatched to the queue when triggered by an event, using Laravel's queue system.
+
+Manually Interacting With the Queue
+
+If you need to manually access the listener's underlying queue job's delete and release methods, you may do so using the Illuminate\Queue\InteractsWithQueue trait, which is imported by default:
+
+use Illuminate\Queue\InteractsWithQueue;
+
+public function handle(OrderShipped $event): void
+{
+    if (true) {
+        $this->release(30);
+    }
+}
+
+Queued Listeners and Database Transactions
+
+When queued listeners are dispatched within a database transaction, they may be processed by the queue before the database transaction has committed, meaning any updates made to models or database records within the transaction may not yet be reflected in the database. If your listener depends on those models, unexpected errors can occur when the queued job runs. To handle this, implement the ShouldQueueAfterCommit interface on the listener class, so Laravel dispatches it only after the outer transaction commits.
+
+Unique Event Listeners
+
+Sometimes you want to ensure only a single instance of a listener is queued at a time for a particular event payload. Implement the ShouldBeUniqueUntilProcessing or ShouldBeUnique interface:
+
+class SendShipmentNotification implements ShouldQueue, ShouldBeUnique
+{
+    public $order;
+}
+
+Handling Failed Jobs
+
+Sometimes your queued event listener may fail. If a queued listener exceeds the maximum number of attempts, the failed method will be called on your listener, receiving the event instance and the Throwable that caused the failure.
+
+Dispatching Events
+
+To dispatch an event, call the static dispatch method available on the event via the Dispatchable trait:
+
+use App\Events\OrderShipped;
+
+class OrderShipmentController extends Controller
+{
+    public function store(Request $request): RedirectResponse
+    {
+        $order = Order::create( /* ... */ );
+
+        OrderShipped::dispatch($order);
+
+        return redirect('/orders');
+    }
+}
+
+If you would like to conditionally dispatch an event, use dispatchIf and dispatchUnless:
+
+OrderShipped::dispatchIf($condition, $order);
+OrderShipped::dispatchUnless($condition, $order);
+
+Dispatching Events After Database Transactions
+
+Sometimes you may want to instruct Laravel to only actually dispatch an event once the active database transaction has committed. To accomplish this, implement the ShouldDispatchAfterCommit interface on the event class. This interface instructs Laravel to not dispatch the event until the current database transaction commits; if the transaction fails and is rolled back, the event is discarded entirely.
+
+Event Subscribers
+
+Event subscribers are classes that may subscribe to multiple events from within the class itself, allowing you to define several event handlers within a single class:
+
+<?php
+
+namespace App\Listeners;
+
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
+use Illuminate\Events\Dispatcher;
+
+class UserEventSubscriber
+{
+    public function handleUserLogin(Login $event): void {}
+
+    public function handleUserLogout(Logout $event): void {}
+
+    public function subscribe(Dispatcher $events): void
+    {
+        $events->listen(
+            Login::class,
+            [UserEventSubscriber::class, 'handleUserLogin']
+        );
+
+        $events->listen(
+            Logout::class,
+            [UserEventSubscriber::class, 'handleUserLogout']
+        );
+    }
+}
+
+After writing the subscriber, Laravel will automatically discover it, as long as it follows Laravel's event discovery conventions.
+
+
+Laravel: Cache
+
+Source: https://laravel.com/docs/12.x/cache
+
+Introduction
+
+Laravel provides a unified API for various caching backends, including Memcached, Redis, DynamoDB, and relational databases. This allows fast, centralized caching without needing to know the underlying storage API of the cache driver actually being used, since the Cache facade presents a single consistent interface regardless of which driver you've configured in config/cache.php.
+
+Obtaining a Cache Instance
+
+use Illuminate\Support\Facades\Cache;
+
+$value = Cache::get('key');
+
+Storing Items in the Cache
+
+Cache::put('key', 'value', $seconds = 10);
+
+// Store forever, until manually removed
+Cache::forever('key', 'value');
+
+// Store only if the key does not already exist
+Cache::add('key', 'value', $seconds = 10);
+
+Retrieving and Storing (Remember Pattern)
+
+Often you want to retrieve an item from the cache, but also store a default value if the requested item doesn't exist. The remember method does both in a single call:
+
+$value = Cache::remember('users', $seconds = 3600, function () {
+    return DB::table('users')->get();
+});
+
+If the item does not exist in the cache, the closure passed to remember will execute, its return value will be cached, and that value will be returned. To remember an item forever:
+
+$value = Cache::rememberForever('users', function () {
+    return DB::table('users')->get();
+});
+
+Retrieve and Delete
+
+If you need to retrieve an item from the cache and then delete it, use pull:
+
+$value = Cache::pull('key');
+
+Checking for Item Existence
+
+if (Cache::has('key')) {
+    // ...
+}
+
+Incrementing and Decrementing Values
+
+The increment and decrement methods can be used to adjust the value of integer items in the cache:
+
+Cache::increment('key');
+Cache::increment('key', $amount);
+Cache::decrement('key');
+Cache::decrement('key', $amount);
+
+Removing Items from the Cache
+
+Cache::forget('key');
+
+// Alternative expressive syntax
+Cache::put('key', 'value', 0);
+
+// Flush the entire cache, including keys added by other applications sharing the same cache
+Cache::flush();
+
+Flushing the entire cache should be used cautiously, since it removes items for all applications sharing the same cache prefix, not just your own.
+
+The Cache Helper
+
+In addition to using the Cache facade, you may also use the global cache function to retrieve and store data via the cache:
+
+$value = cache('key');
+
+cache(['key' => 'value'], $seconds);
+
+cache()->remember('users', $seconds, function () {
+    return DB::table('users')->get();
+});
+
+Cache Tags
+
+Cache tags allow you to tag related items in the cache and then flush all cached values assigned a given tag, useful for invalidating a whole category of cached data at once (like everything related to a specific user) without tracking individual keys manually. Note that cache tags are not supported when using the file or database cache drivers.
+
+Cache::tags(['people', 'artists'])->put('John', $john, $seconds);
+Cache::tags(['people', 'authors'])->put('Anne', $anne, $seconds);
+
+$john = Cache::tags(['people', 'artists'])->get('John');
+
+Cache::tags(['people', 'authors'])->flush();
+
+Atomic Locks
+
+Atomic locks allow for the manipulation of distributed locks without worrying about race conditions. For example, Laravel Forge uses atomic locks to ensure that only one remote task is being executed on a server at a time. Not all cache drivers support atomic locks — memcached, Redis, DynamoDB, database, file, and array drivers currently support them.
+
+$lock = Cache::lock('foo', 10);
+
+if ($lock->get()) {
+    // Lock acquired for 10 seconds...
+    $lock->release();
+}
+
+Or using a closure that automatically releases the lock after execution:
+
+Cache::lock('foo', 10)->get(function () {
+    // Lock acquired for 10 seconds and automatically released...
+});
+
+
+Laravel: Blade Templating
+
+Source: https://laravel.com/docs/12.x/blade
+
+Introduction
+
+Blade is the simple, yet powerful templating engine included with Laravel. Unlike some PHP templating engines, Blade does not restrict you from using plain PHP code in your templates. All Blade templates are compiled into plain PHP code and cached until they are modified, meaning Blade adds essentially zero overhead to your application. Blade template files use the .blade.php extension and are typically stored in the resources/views directory.
+
+Displaying Data
+
+You may display data passed to your Blade views by wrapping the variable in curly braces:
+
+Hello, {{ $name }}.
+
+Blade's {{ }} echo statements automatically send the result through PHP's htmlspecialchars function to prevent XSS attacks. If you don't want your data to be escaped, use the raw echo syntax:
+
+{!! $unescaped !!}
+
+Be very careful when echoing content that is supplied by users of your application, since unescaped Blade syntax is not safe against XSS attacks if it contains untrusted input.
+
+Blade and JavaScript Frameworks
+
+Since many JavaScript frameworks also use curly braces to indicate a given expression should be displayed in the browser, use the @ symbol to inform the Blade rendering engine an expression should remain untouched:
+
+<h1>Laravel</h1>
+Hello, @{{ name }}.
+
+Control Structures
+
+If Statements
+
+@if (count($records) === 1)
+    I have one record!
+@elseif (count($records) > 1)
+    I have multiple records!
+@else
+    I don't have any records!
+@endif
+
+@unless (Auth::check())
+    You are not signed in.
+@endunless
+
+Loops
+
+@for ($i = 0; $i < 10; $i++)
+    The current value is {{ $i }}
+@endfor
+
+@foreach ($users as $user)
+    <p>This is user {{ $user->id }}</p>
+@endforeach
+
+@forelse ($users as $user)
+    <li>{{ $user->name }}</li>
+@empty
+    <p>No users</p>
+@endforelse
+
+@while (true)
+    <p>I'm looping forever.</p>
+@endwhile
+
+Inside loops, the $loop variable provides useful information such as $loop->index, $loop->first, $loop->last, and $loop->iteration.
+
+Layouts and Template Inheritance
+
+Blade layouts are typically defined using @extends and @section:
+
+<!-- Stored in resources/views/layouts/app.blade.php -->
+<html>
+    <head>
+        <title>App Name - @yield('title')</title>
+    </head>
+    <body>
+        @section('sidebar')
+            This is the master sidebar.
+        @show
+
+        <div class="container">
+            @yield('content')
+        </div>
+    </body>
+</html>
+
+A child view then extends the layout:
+
+@extends('layouts.app')
+
+@section('title', 'Page Title')
+
+@section('sidebar')
+    @parent
+    <p>This is appended to the master sidebar.</p>
+@endsection
+
+@section('content')
+    <p>This is my body content.</p>
+@endsection
+
+Components
+
+Blade components provide similar benefits to sections and layouts, but are easier to reason about. Generate a component:
+
+php artisan make:component Alert
+
+Rendering the component:
+
+<x-alert type="error" :message="$message" />
+
+Components accept data via HTML attributes, and public properties defined on the component's class become available to the component's template automatically.
+
+Including Sub-Views
+
+@include('shared.errors')
+
+You can pass an array of additional data to the included view:
+
+@include('view.name', ['status' => 'complete'])
+
+Comments
+
+Blade comments do not appear in the HTML returned by your application, unlike HTML comments:
+
+{{-- This comment will not be present in the rendered HTML --}}
+
+Blade Directives for Authentication and Authorization
+
+@auth
+    // The user is authenticated...
+@endauth
+
+@guest
+    // The user is not authenticated...
+@endguest
+
+@can('update', $post)
+    // The current user can update the post...
+@endcan

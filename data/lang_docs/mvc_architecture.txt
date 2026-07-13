@@ -1,0 +1,317 @@
+MVC Architecture - Model-View-Controller Pattern
+
+Introduction
+
+MVC (Model-View-Controller) is a software architectural pattern that organizes application logic into three interconnected components. MVC separates concerns between data (Model), presentation (View), and user interaction (Controller), making applications more maintainable, testable, and scalable.
+
+MVC has been the dominant pattern in web development for decades, implemented by frameworks like Django, Ruby on Rails, Laravel, Spring MVC, and ASP.NET MVC.
+
+The Three Components
+
+Model: The data layer representing the application's state and business logic.
+
+The Model is responsible for:
+- Representing domain entities (User, Product, Order)
+- Managing data persistence (database operations)
+- Enforcing business rules and validation
+- Containing pure business logic unrelated to presentation
+- Being independent of how data is displayed or interacted with
+
+Models should not know about views or controllers.
+
+```python
+class User:
+  def __init__(self, name, email):
+    self.name = name
+    self.email = email
+    self.created_at = datetime.now()
+
+  def is_valid(self):
+    return '@' in self.email and len(self.name) > 0
+
+  def save(self):
+    # Persist to database
+    db.insert('users', {
+      'name': self.name,
+      'email': self.email,
+      'created_at': self.created_at
+    })
+```
+
+View: The presentation layer responsible for displaying data to users.
+
+The View is responsible for:
+- Rendering data to HTML, JSON, PDF, etc.
+- Formatting data for display
+- Being independent of business logic
+- Receiving data from Controller
+- Sending user interactions to Controller
+
+Views should contain minimal logic (ideally none).
+
+```html
+<template>
+  <div class="user-profile">
+    <h1>{{ user.name }}</h1>
+    <p>Email: {{ user.email }}</p>
+    <p>Member since {{ user.created_at | date }}</p>
+    <button @click="editUser">Edit Profile</button>
+  </div>
+</template>
+```
+
+Controller: The coordinator between Model and View.
+
+The Controller is responsible for:
+- Receiving user input and requests
+- Calling Model methods to process data
+- Selecting appropriate View to render
+- Passing data to View
+- Handling validation errors and edge cases
+
+Controllers should contain minimal business logic (that belongs in Model).
+
+```python
+class UserController:
+  def show(request, user_id):
+    user = User.find(user_id)
+    return render('user/show.html', {'user': user})
+
+  def update(request, user_id):
+    user = User.find(user_id)
+    if not user:
+      return error_response('User not found', 404)
+
+    user.email = request.form['email']
+    if not user.is_valid():
+      return render('user/edit.html', {
+        'user': user,
+        'errors': user.validation_errors()
+      })
+
+    user.save()
+    return redirect('/users/' + str(user.id))
+```
+
+Separation of Concerns
+
+MVC achieves separation by keeping distinct responsibilities in different components.
+
+Model contains data and business rules: "What are the rules for a valid user?"
+View contains presentation logic: "How do we display a user?"
+Controller coordinates between them: "When user submits form, validate data, save to database, show confirmation."
+
+This separation provides several benefits:
+
+Independence: You can change how users are displayed (View) without changing business rules (Model).
+
+Reusability: The same Model can be used for multiple Views (web UI, API, mobile app).
+
+Testability: Test business logic (Model) independently from presentation.
+
+Maintainability: Each layer has clear responsibility, easier to understand and modify.
+
+MVC in Different Frameworks
+
+Django (Python):
+
+Models define database schema and business logic:
+```python
+class User(models.Model):
+  name = models.CharField(max_length=100)
+  email = models.EmailField()
+
+  def is_admin(self):
+    return self.groups.filter(name='admin').exists()
+```
+
+Views handle requests and return responses:
+```python
+def user_detail(request, user_id):
+  user = User.objects.get(id=user_id)
+  return render(request, 'users/detail.html', {'user': user})
+```
+
+Templates are views (HTML with variable substitution):
+```html
+<h1>{{ user.name }}</h1>
+<p>Email: {{ user.email }}</p>
+{% if user.is_admin %}
+  <span class="admin-badge">Admin</span>
+{% endif %}
+```
+
+Laravel (PHP):
+
+Models represent database entities:
+```php
+class User extends Model {
+  protected $fillable = ['name', 'email'];
+
+  public function isAdmin() {
+    return $this->hasRole('admin');
+  }
+}
+```
+
+Controllers handle business logic:
+```php
+public function show($id) {
+  $user = User::find($id);
+  return view('users.show', ['user' => $user]);
+}
+```
+
+Views are Blade templates:
+```blade
+<h1>{{ $user->name }}</h1>
+<p>Email: {{ $user->email }}</p>
+@if($user->isAdmin())
+  <span class="admin-badge">Admin</span>
+@endif
+```
+
+Spring MVC (Java):
+
+Models are entities with JPA/Hibernate:
+```java
+@Entity
+public class User {
+  @Id private Long id;
+  private String name;
+  private String email;
+
+  public boolean isAdmin() {
+    return roles.stream().anyMatch(r -> r.getName().equals("admin"));
+  }
+}
+```
+
+Controllers map requests to methods:
+```java
+@Controller
+@RequestMapping("/users")
+public class UserController {
+  @GetMapping("/{id}")
+  public String show(@PathVariable Long id, Model model) {
+    User user = userService.findById(id);
+    model.addAttribute("user", user);
+    return "users/show";
+  }
+}
+```
+
+Views use JSP, Thymeleaf, or FreeMarker templates.
+
+Request Flow in MVC
+
+1. User clicks link or submits form
+2. Browser sends HTTP request to server
+3. Server routes request to Controller method based on URL
+4. Controller receives request and parses parameters
+5. Controller calls Model methods to fetch or modify data
+6. Controller receives result from Model
+7. Controller selects appropriate View and passes data
+8. View renders data into HTML/JSON/etc
+9. Server sends response to browser
+10. Browser displays content
+
+Example flow:
+
+```
+User clicks "View Profile"
+  ↓
+Browser requests GET /users/123
+  ↓
+Router matches route to UserController.show(123)
+  ↓
+Controller: user = User.find(123)
+  ↓
+Model queries database
+  ↓
+Controller: return render('user/show', {user: user})
+  ↓
+View renders HTML with user data
+  ↓
+Browser displays profile page
+```
+
+Modern MVC Variations
+
+Traditional Server-Side MVC: Controller on server, generates entire View
+
+Modern Client-Side MVC: Server provides API (Controller/Model), browser handles View
+```
+Browser <-> Server API <-> Database
+  ↑           ↑              ↑
+ View      Controller      Model
+```
+
+MVVM (Model-View-ViewModel): View binds directly to ViewModel for reactive updates.
+
+MVP (Model-View-Presenter): Similar to MVC but Presenter is more sophisticated.
+
+MVC Best Practices
+
+Keep Models focused on business logic: Models shouldn't know about HTTP, views, or frameworks.
+
+Keep Views simple: Views should contain formatting and template logic only, not business logic.
+
+Keep Controllers thin: Controllers orchestrate; they shouldn't contain business logic.
+
+Use dependency injection: Pass dependencies rather than creating them.
+
+Test Models thoroughly: Business logic needs rigorous testing.
+
+Test Controllers with mocks: Test controller behavior, not view rendering.
+
+Test Views with integration tests: Test that data displays correctly.
+
+Use a data access layer: Models shouldn't directly query databases. Use repositories or data access objects.
+
+Common MVC Mistakes
+
+Fat Models: Models contain too much logic, become unmanageable.
+
+```python
+# BAD
+class User(Model):
+  def send_email(self):  # Business logic? Mail sending?
+    pass
+  def generate_report(self):  # This belongs elsewhere
+    pass
+```
+
+Fat Controllers: Controllers contain business logic.
+
+```python
+# BAD
+def process_order(request):
+  # Calculate discounts
+  # Apply tax
+  # Check inventory
+  # Charge card
+  # Send confirmation
+  # All in one method!
+```
+
+Smart Views: Views contain conditional logic and data transformation.
+
+```html
+<!-- BAD -->
+<div>
+  {% for item in data %}
+    {% if item.type == 'special' %}
+      {% if item.category in request.user.preferences %}
+        <!-- Complex rendering logic -->
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+</div>
+```
+
+Tight Coupling: Components depend on each other's implementation details.
+
+No Separation: No clear boundaries between Model, View, Controller.
+
+MVC is a time-tested pattern that has proven effective across countless frameworks and applications. While newer patterns have emerged, understanding MVC provides foundation for understanding most web frameworks.

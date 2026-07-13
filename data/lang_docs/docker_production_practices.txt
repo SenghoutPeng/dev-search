@@ -1,0 +1,294 @@
+Docker: Multi-Stage Builds
+
+Source: https://docs.docker.com/build/building/multi-stage/
+
+Why Use Multi-Stage Builds
+
+Multi-stage builds let you optimize Dockerfiles while keeping them easy to read and maintain. They separate the build process (compilers, build tools, intermediate artifacts) from the runtime environment, producing a much smaller final image that contains only what's actually needed to run the application, not what was needed to build it.
+
+Core Structure
+
+A multi-stage Dockerfile contains multiple FROM statements, and each one begins a new build stage. You can selectively copy artifacts from one stage into another, leaving behind everything you don't want in the final image, such as the entire compiler toolchain:
+
+syntax=docker/dockerfile:1
+FROM golang:1.25
+WORKDIR /src
+COPY <<EOF ./main.go
+package main
+
+import "fmt"
+
+func main() {
+  fmt.Println("hello, world")
+}
+EOF
+RUN go build -o /bin/hello ./main.go
+
+FROM scratch
+COPY --from=0 /bin/hello /bin/hello
+CMD ["/bin/hello"]
+
+Build it with:
+
+docker build -t hello .
+
+The second FROM starts a completely fresh image from scratch (an empty base image), while COPY --from=0 pulls only the compiled binary out of the first stage — nothing else from the Go toolchain or build context ends up in the final image.
+
+Naming Build Stages
+
+By default, stages are referenced by integer index starting at 0, but adding AS <NAME> to a FROM instruction makes the Dockerfile much more readable and maintainable, especially once you have three or more stages:
+
+syntax=docker/dockerfile:1
+FROM golang:1.25 AS build
+WORKDIR /src
+COPY <<EOF /src/main.go
+package main
+
+import "fmt"
+
+func main() {
+  fmt.Println("hello, world")
+}
+EOF
+RUN go build -o /bin/hello ./main.go
+
+FROM scratch
+COPY --from=build /bin/hello /bin/hello
+CMD ["/bin/hello"]
+
+Stopping at a Specific Stage
+
+Use the --target flag to build only up to a named stage, rather than the whole Dockerfile:
+
+docker build --target build -t hello .
+
+This is useful for debugging an intermediate stage directly, maintaining separate debug and production build stages in the same Dockerfile, or using a dedicated test stage configured with different test data or environment variables than production.
+
+Using External Images as a Stage
+
+You can copy files directly from another image on disk or in a registry, using the same COPY --from syntax but pointing at an image reference instead of a stage name:
+
+COPY --from=nginx:latest /etc/nginx/nginx.conf /nginx.conf
+
+Docker pulls the referenced image automatically if it isn't already present locally, exactly as it would for a normal FROM.
+
+Reusing Previous Stages as a Base
+
+A later stage can use an earlier stage as its own base image in a new FROM instruction, which is handy for sharing a common build environment across several independent build variants:
+
+FROM alpine:latest AS builder
+RUN apk --no-cache add build-base
+
+FROM builder AS build1
+COPY source1.cpp source.cpp
+RUN g++ -o /binary source.cpp
+
+FROM builder AS build2
+COPY source2.cpp source.cpp
+RUN g++ -o /binary source.cpp
+
+Both build1 and build2 start from the same builder stage (with its build tools already installed), then diverge to compile different source files, avoiding having to reinstall the build tooling twice.
+
+BuildKit vs. the Legacy Builder
+
+The BuildKit backend and the legacy builder handle multi-stage builds quite differently in terms of what gets built. BuildKit only processes the stages that the requested target actually depends on, skipping anything unrelated. The legacy builder, in contrast, processes every preceding stage regardless of whether the target depends on it. Concretely: with a three-stage Dockerfile (base, stage1, stage2) where stage2 depends only on base and not on stage1, building --target stage2 under BuildKit only builds base and stage2, entirely skipping stage1's build steps — while the legacy builder would build all three stages regardless. This is one of several reasons BuildKit is the recommended and now-default builder for most Docker installations.
+
+Practical Benefits Summary
+
+Multi-stage builds are the standard technique for keeping production images small and secure: they let a Dockerfile compile from source using a full-featured SDK image (with all its build dependencies) while shipping a minimal runtime image that only contains the compiled artifact and its runtime dependencies, dramatically shrinking the attack surface and the size of what actually gets pushed to a registry and pulled at deploy time.
+
+
+Docker: Security Best Practices
+
+Source: https://docs.docker.com/build/building/best-practices/ and general Docker security guidance
+
+Run Containers as a Non-Root User
+
+By default, a process inside a container runs as root unless the Dockerfile or run command specifies otherwise. Running as root inside a container is riskier than it sounds, because certain container escape vulnerabilities are only exploitable when the contained process has root privileges. Create and switch to a dedicated non-root user in the Dockerfile:
+
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+USER appuser
+
+Many official base images already ship with a pre-created non-root user (such as node's node user) that you can switch to directly with USER node, without creating one yourself.
+
+Use Minimal Base Images
+
+Smaller base images have a smaller attack surface, since there's simply less installed software that could contain an exploitable vulnerability. Prefer slim or alpine variants of official images, or distroless images that contain only an application and its runtime dependencies with no shell or package manager at all:
+
+FROM node:20-alpine
+
+Multi-stage builds pair naturally with this practice, letting you use a full-featured image to compile or build an application, then copy only the resulting artifact into a genuinely minimal runtime image.
+
+Pin Specific Image Versions
+
+Using a floating tag like latest means the exact contents of your base image can silently change between builds, which is both a reproducibility problem and a security concern, since you could unknowingly pick up a newly introduced vulnerability. Pin to a specific version, and ideally to a content-addressable digest for maximum reproducibility:
+
+FROM node:20.11.1
+FROM node@sha256:1234567890abcdef...
+
+Avoid Storing Secrets in Images
+
+Any value baked into an image layer, including build arguments and environment variables set with ENV, persists in that layer and can be extracted by anyone who has access to the image, even if a later layer overwrites or deletes it. Use BuildKit's dedicated secret-mounting mechanism instead, which makes a secret available only during a specific RUN instruction and never persists it into any image layer:
+
+syntax=docker/dockerfile:1
+FROM alpine
+RUN --mount=type=secret,id=mytoken \
+    cat /run/secrets/mytoken
+
+Building with docker build --secret id=mytoken,src=./token.txt supplies the secret without it ever landing in the final image's layers.
+
+Scan Images for Known Vulnerabilities
+
+Regularly scanning built images against a vulnerability database catches known CVEs in the OS packages and language dependencies baked into an image before that image gets deployed:
+
+docker scout cves myimage:latest
+
+Integrating a scan step into CI, and failing the build on critical vulnerabilities, catches vulnerable dependencies before they ever reach a production registry.
+
+Limit Container Capabilities and Resources
+
+Linux capabilities let you grant a container just the specific kernel privileges it needs, rather than the full set implied by running as root. Dropping all capabilities and re-adding only what's required narrows what a compromised container process could do:
+
+docker run --cap-drop=ALL --cap-add=NET_BIND_SERVICE myimage
+
+Resource limits (memory and CPU) similarly prevent one misbehaving or compromised container from starving the rest of the host:
+
+docker run --memory=512m --cpus=1 myimage
+
+Read-Only Root Filesystems
+
+For containers that don't need to write to their own filesystem at runtime, mounting the root filesystem read-only prevents an attacker who gains code execution from persisting a malicious binary or modifying application files inside the running container:
+
+docker run --read-only myimage
+
+Any paths the application genuinely does need to write to (a temp directory, a cache directory) can still be granted explicit read-write access via a tmpfs mount or a volume, layered on top of an otherwise read-only filesystem.
+
+Keep the Docker Daemon and Host Updated
+
+Because all containers on a host ultimately share that host's kernel, a kernel-level vulnerability can potentially be exploited from inside any container to affect the whole host. Keeping the Docker Engine, the host operating system, and the kernel itself patched and up to date is a foundational security practice that no amount of in-container hardening can substitute for.
+
+
+Docker: Image Size Optimization and Build Context Management
+
+Source: consolidated Docker build best practices (https://docs.docker.com/build/building/best-practices/)
+
+Why Image Size Matters
+
+Smaller images pull faster, start faster, consume less registry storage, and present a smaller attack surface since there's simply less software present that could contain a vulnerability. Image size optimization is one of the most impactful things you can do to a Dockerfile beyond just getting the build to work correctly.
+
+Choosing a Smaller Base Image
+
+The single biggest lever for image size is usually the base image itself. Compare:
+
+FROM ubuntu:22.04         # full OS, several hundred MB
+FROM python:3.12-slim     # trimmed-down variant, much smaller
+FROM python:3.12-alpine   # Alpine-based, smaller still, uses musl libc
+FROM gcr.io/distroless/python3  # no shell, no package manager, minimal attack surface
+
+Alpine-based images use musl libc instead of glibc, which occasionally causes subtle compatibility issues with precompiled binaries expecting glibc — worth testing thoroughly before committing to an alpine base for a production image, rather than assuming it's a drop-in replacement.
+
+Combining RUN Instructions to Reduce Layers
+
+Each RUN instruction creates a new layer, and intermediate files created and then deleted within separate RUN instructions still bloat the image, since earlier layers already committed those files before a later layer removed them. Combining install-and-cleanup into a single RUN avoids this:
+
+Produces two layers; the deleted cache still counts toward image size
+RUN apt-get update && apt-get install -y curl
+RUN rm -rf /var/lib/apt/lists/*
+
+Produces one layer; cleanup happens before the layer is committed
+RUN apt-get update && apt-get install -y curl \
+    && rm -rf /var/lib/apt/lists/*
+
+Using .dockerignore to Shrink Build Context
+
+Before a build even starts, Docker packages up the entire build context (everything in the directory passed to docker build) and sends it to the daemon. A .dockerignore file excludes files and directories from this context, which both speeds up the build and prevents unintentionally sensitive or bulky files from ever being available to COPY instructions in the first place:
+
+node_modules
+.git
+.env
+*.log
+dist
+coverage
+.DS_Store
+
+Without excluding node_modules, for example, a broad COPY . . instruction risks copying the host's own installed dependencies (which may not even match the target platform) into the image, when the intent was for RUN npm install to install fresh dependencies inside the container instead.
+
+Removing Build-Time-Only Dependencies
+
+Multi-stage builds are the cleanest solution to this problem, but even in a single-stage Dockerfile, explicitly removing packages that were only needed to compile something (and aren't needed at runtime) reduces final image size:
+
+RUN apt-get update && apt-get install -y build-essential \
+    && pip install some-package-needing-compilation \
+    && apt-get purge -y build-essential \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+Squashing Layers
+
+Some build tools offer a --squash flag that merges every layer produced by a build into a single layer in the final image. This can reduce final image size in specific cases, but comes at the cost of losing Docker's layer-level caching benefits between builds, since a squashed image can no longer share individual unchanged layers with a previous build the way a normal layered image can — multi-stage builds are generally the preferred approach over squashing for most use cases, since they achieve similar size benefits without giving up layer caching.
+
+Measuring the Impact of Changes
+
+The most reliable way to know whether an optimization actually helped is to measure it directly:
+
+docker images myimage --format "{{.Size}}"
+docker history myimage --format "{{.Size}}\t{{.CreatedBy}}"
+
+Comparing image size before and after a change, and inspecting exactly which layer contributed the most size via docker history, turns image optimization from guesswork into a measurable, iterative process.
+
+
+Docker: Logging and Monitoring Containers
+
+Source: consolidated Docker logging documentation (https://docs.docker.com/engine/logging/)
+
+Viewing Container Logs
+
+By default, Docker captures a container's stdout and stderr streams and makes them available through the docker logs command:
+
+docker logs my-container
+docker logs -f my-container   # follow, like tail -f
+docker logs --tail 100 my-container  # only the last 100 lines
+docker logs --since 10m my-container  # only logs from the last 10 minutes
+
+For this to work, the application inside the container needs to write its logs to stdout/stderr rather than to a file inside the container's own filesystem — writing logs to an internal file makes them invisible to docker logs entirely, since Docker's logging drivers only ever capture the two standard streams.
+
+Logging Drivers
+
+Docker supports pluggable logging drivers that determine where captured log output actually ends up. The default json-file driver writes logs as JSON-formatted lines to a file on the host, which is what docker logs reads from directly. Other drivers redirect logs to external systems instead:
+
+docker run --log-driver=syslog myimage
+docker run --log-driver=journald myimage
+docker run --log-driver=awslogs --log-opt awslogs-group=my-log-group myimage
+
+Once a non-default logging driver is configured, docker logs may no longer work for that container, since the local json-file log is no longer being written — logs instead need to be viewed through whatever external system the chosen driver forwards them to.
+
+Log Rotation
+
+The default json-file driver can grow unbounded if not configured with rotation limits, potentially consuming significant disk space over a long-running container's lifetime. Configure size and count limits via log options:
+
+docker run --log-opt max-size=10m --log-opt max-file=3 myimage
+
+This keeps at most 3 log files of up to 10MB each per container, automatically rotating and discarding the oldest once the limit is reached, rather than letting a single ever-growing log file consume unbounded disk space.
+
+Container Resource Monitoring
+
+docker stats provides a live, continuously updating view of resource usage (CPU, memory, network I/O, block I/O) for running containers, useful for a quick manual check of whether a container is behaving as expected:
+
+docker stats
+docker stats my-container  # a single specific container
+
+For a one-time snapshot rather than a live stream:
+
+docker stats --no-stream
+
+Inspecting Container Health
+
+For containers with a HEALTHCHECK instruction defined in their Dockerfile, docker inspect reveals the current health status and recent health check results:
+
+docker inspect --format='{{json .State.Health}}' my-container
+
+This reports whether the container is currently starting, healthy, or unhealthy, along with the exit codes and output of its most recent health check attempts, which orchestration tools and load balancers can use to decide whether traffic should be routed to that specific container instance.
+
+Centralized Logging in Multi-Container Deployments
+
+In a multi-container application, aggregating logs from every service into a single centralized location (rather than checking docker logs on each container individually) becomes essential once the number of containers grows past a handful. Common approaches include configuring a logging driver like gelf or fluentd that forwards every container's logs to a centralized log aggregation service, or running a dedicated log-shipping sidecar container that tails each service's logs and forwards them onward — both patterns move log aggregation out of manual per-container inspection and into a searchable, centralized system suited to debugging issues across an entire distributed application at once.

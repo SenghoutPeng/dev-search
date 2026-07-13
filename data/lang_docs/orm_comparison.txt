@@ -1,0 +1,86 @@
+ORM Comparison - GORM, Eloquent, and Spring Data JPA/Hibernate
+
+Introduction
+
+GORM, Eloquent, and Spring Data JPA (backed by Hibernate) are the three ORMs most closely associated with Go, PHP/Laravel, and Java/Spring Boot respectively, and each embodies a genuinely different architectural pattern for bridging objects and relational tables. Eloquent is a textbook Active Record implementation. Hibernate, accessed through Spring Data JPA's repository abstraction, is a Data Mapper implementation with a stateful persistence context. GORM sits in between the two, using plain Go structs plus a separate query-builder object in a way that borrows characteristics from both patterns without fully committing to either. Comparing all three side by side clarifies these two classic ORM design patterns and where each framework's ORM actually falls between them.
+
+Active Record: Eloquent
+
+In the Active Record pattern, an object is simultaneously the in-memory representation of a row and the thing responsible for persisting itself. An Eloquent model instance carries both its own data and its own save/delete behavior:
+
+```php
+class Flight extends Model {
+    protected $fillable = ['name'];
+}
+
+$flight = Flight::find(1);
+$flight->name = 'Paris to London';
+$flight->save();       // the object saves itself
+
+$flight->delete();     // the object deletes itself
+```
+
+There is no separate "repository" or "session" object standing between your code and the database in Eloquent's basic usage — `Flight::find(1)`, `Flight::where(...)->get()`, and `$flight->save()` are all static or instance methods on the model class itself, which is exactly what defines Active Record: the model class doubles as its own data access object. This makes Eloquent extremely quick to reach for and read, since there is no additional layer to learn beyond the model class, but it does mean a Flight object's responsibilities span both "represent a row of data" and "know how to persist that row," two concerns that other patterns deliberately keep separate.
+
+Data Mapper: Spring Data JPA and Hibernate
+
+The Data Mapper pattern deliberately separates an entity's data from the logic that persists it. In Spring Data JPA, an `@Entity`-annotated class is a plain data-holding object with no save/delete methods of its own:
+
+```java
+@Entity
+public class Customer {
+    @Id
+    @GeneratedValue
+    private Long id;
+    private String firstName;
+    private String lastName;
+    // protected no-arg constructor for JPA, plus a public constructor for app code
+}
+```
+
+Persistence is handled entirely by a separate repository interface, which Spring Data JPA generates a concrete implementation for automatically at runtime:
+
+```java
+public interface CustomerRepository extends CrudRepository<Customer, Long> {
+    List<Customer> findByLastName(String lastName);  // derived from the method name
+}
+
+customerRepository.save(customer);        // the repository saves it, not the entity
+customerRepository.findById(1L);
+```
+
+The `Customer` entity itself never appears with a `.save()` method — all persistence operations go through `CustomerRepository`, a completely separate object, which is precisely what makes this a Data Mapper: the mapping and persistence logic lives apart from the domain object it maps. Underneath Spring Data JPA sits Hibernate, which additionally maintains a stateful persistence context (the EntityManager, and the first-level cache it manages) that tracks every entity it has loaded within a given transaction, automatically detecting field changes made to a managed entity and flushing the corresponding UPDATE statements at the transaction boundary, without an explicit call resembling Eloquent's `save()` — this automatic dirty-checking is a distinctive Hibernate behavior with no real equivalent in either Eloquent or GORM, both of which require an explicit call (`save()`, `Save()`) to persist a change.
+
+GORM's Hybrid Approach
+
+GORM does not fit cleanly into either category. Like Data Mapper, a GORM struct is plain data with no methods of its own for persistence:
+
+```go
+type User struct {
+    ID   uint
+    Name string
+}
+
+var user User
+db.First(&user, 1)      // db, not user, does the fetching
+user.Name = "hello"
+db.Save(&user)           // db, not user, does the saving
+```
+
+The `User` struct itself carries no `Save()` or `Find()` method — every operation is a method on the separate `*gorm.DB` handle, with the struct passed in by pointer as an argument, which is structurally Data-Mapper-like in spirit: data and persistence behavior live in different places. But GORM lacks Hibernate's defining Data Mapper feature, a persistence context that tracks entities and detects changes automatically — there is no GORM equivalent of an EntityManager silently noticing that `user.Name` changed and flushing an UPDATE without an explicit `Save` call. Every GORM write is an explicit, immediate call against the database handle, closer in spirit to Eloquent's directness (call a method, the database changes now) than to Hibernate's deferred, transaction-scoped flush semantics. GORM is thus best described as a hybrid: Data-Mapper-shaped in that persistence logic is separated from the struct, but Active-Record-like in its immediacy, since every `db.Create`, `db.Save`, or `db.Updates` call executes its SQL right away rather than being batched up and flushed later by a tracked unit of work.
+
+Query Style Comparison
+
+All three support both a fluent, chainable query style and named or derived finder methods, but derive them differently. Eloquent builds queries by chaining methods directly on the model class, since the model class is also the query builder: `Flight::where('active', 1)->orderBy('name')->limit(10)->get()`. GORM builds queries by chaining methods on the separate `*gorm.DB` handle, terminating with an action method that takes the destination struct: `db.Where("active = ?", true).Order("name").Limit(10).Find(&flights)`. Spring Data JPA takes a third approach entirely for simple queries — rather than method chaining, a repository interface method's name itself is parsed to derive the query, with no query body written at all: a method named `findByLastName` on `CustomerRepository` automatically becomes a query filtering by the `lastName` property, and compound method names like `findByLastNameAndFirstName` combine multiple conditions purely through naming convention. For anything the naming convention can't express, JPA repositories drop to an explicit `@Query` annotation carrying JPQL (a query language operating over entity objects and their properties, rather than raw table and column names) or, with `nativeQuery = true`, plain SQL — a middle ground between GORM's always-chainable query builder and Eloquent's always-chainable model methods.
+
+Relationships and Loading Strategies
+
+All three support the same conceptual relationship types — one-to-one, one-to-many, many-to-many — expressed through annotations or tags rather than manual join logic, and all three face the same N+1 query problem and solve it with an eager-loading mechanism: GORM's `Preload("Relation")`, Eloquent's `with('relation')`, and JPA's `@OneToMany`/`@ManyToOne` combined with an explicit fetch type (`FetchType.EAGER` or `FetchType.LAZY`) or a `JOIN FETCH` clause in a custom JPQL query. JPA's relationship annotations are the most configuration-heavy of the three, since fetch type, cascade behavior, and the owning side of a bidirectional relationship all typically need to be specified explicitly, whereas GORM and Eloquent both lean more on convention (GORM infers the foreign key name from the associated type; Eloquent assumes a `_id`-suffixed foreign key matching the parent model's name) with annotations or tags only needed when conventions don't apply.
+
+Migrations and Schema Management
+
+GORM's `AutoMigrate(&User{})` inspects a struct's current shape and adjusts the database table to match, with no separate versioned migration history by default. Laravel's migrations are explicit, timestamped PHP files with `up()`/`down()` methods, run and rolled back through Artisan commands, giving a reviewable, ordered changelog of schema history. Spring Data JPA itself does not mandate a particular migration approach — Hibernate can auto-generate or validate schema from entity annotations during development, but production Spring Boot applications overwhelmingly pair JPA with a dedicated migration tool (such as Flyway or Liquibase) that, like Laravel's migrations, maintains an explicit, versioned history of schema changes as separate files rather than inferring schema directly from annotated classes at runtime.
+
+Summary
+
+Eloquent commits fully to Active Record: the model is the persistence mechanism. Hibernate, through Spring Data JPA, commits fully to Data Mapper: a stateful persistence context tracks and automatically flushes changes to plain entity objects, with a separate repository layer as the primary access point. GORM occupies a middle position — structurally Data-Mapper-like in separating structs from the `*gorm.DB` handle that operates on them, but Active-Record-like in its immediate, explicit-call persistence semantics with no automatic dirty-checking. Recognizing which pattern (or hybrid) an ORM implements clarifies a lot of otherwise-surprising behavior, such as why a plain Hibernate entity's field mutation eventually reaches the database with no explicit save call, while the equivalent mutation in GORM or Eloquent does nothing at all until an explicit `Save`/`save()` call is made.

@@ -1,0 +1,151 @@
+GORM vs Eloquent - ORM API Style Compared
+
+Introduction
+
+GORM (Go) and Eloquent (PHP, part of Laravel) are both popular object-relational mappers, but they express the same underlying ideas — models, relationships, queries, migrations — through very different language idioms. GORM is built around Go's struct tags and a chainable method-based query builder operating on plain structs. Eloquent implements the Active Record pattern using PHP's dynamic, magic-method-friendly object model, where a model instance is itself both the row's data and the means of saving it. Comparing their APIs side by side highlights how deeply an ORM's design is shaped by the host language's own features.
+
+Model Declaration
+
+GORM models are plain Go structs, with column behavior expressed through struct tags rather than a base class's configuration:
+
+```go
+type User struct {
+  ID       uint           // primary key by convention
+  Name     string
+  Email    *string        // pointer allows NULL
+  Age      uint8 `gorm:"default:18"`
+  CreatedAt time.Time     // managed automatically
+  UpdatedAt time.Time
+}
+```
+
+GORM infers the table name by snake-casing and pluralizing the struct name (`User` maps to `users`), infers the primary key from a field named `ID`, and automatically manages `CreatedAt`/`UpdatedAt` if those exact field names are present. Embedding `gorm.Model` — a predefined struct providing `ID`, `CreatedAt`, `UpdatedAt`, and `DeletedAt` for soft deletes — is the idiomatic shorthand for opting into all of these conventions at once. Field-level behavior (read/write permission, defaults, indexes, custom column names) is expressed entirely through the `gorm:"..."` tag string, for example `gorm:"column:name;type:varchar(100);unique;not null"`.
+
+Eloquent models are PHP classes extending `Illuminate\Database\Eloquent\Model`, with no fields declared for ordinary columns at all — a model's columns are implicit and discovered by way of the underlying database schema at runtime, not declared in the class body:
+
+```php
+class Flight extends Model
+{
+    protected $table = 'my_flights';   // only needed if it deviates from convention
+    protected $fillable = ['name'];    // mass-assignment allowlist
+}
+```
+
+Like GORM, Eloquent assumes a snake_case, pluralized table name (`Flight` maps to `flights`) and an auto-incrementing `id` primary key unless told otherwise via `$table` or `$primaryKey` properties. Because PHP is dynamically typed, a Flight instance's `name` or `email` "fields" are never declared in the class at all — they exist as dynamic properties populated by whatever columns the query actually returned, accessed through PHP's magic `__get`/`__set` methods behind the scenes. This is a fundamental structural difference from GORM: a GORM struct's fields are fixed, compile-time-checked members of a Go type, while an Eloquent model's attributes are runtime-discovered and can, in principle, vary from one query to the next.
+
+Active Record vs Struct-and-Query-Builder
+
+Eloquent is a textbook Active Record implementation: a model instance both represents a row's data and knows how to persist itself. Creating and saving a record reads as a sequence of operations on the object itself:
+
+```php
+$flight = new Flight;
+$flight->name = $request->name;
+$flight->save();
+
+// or the shorthand
+$flight = Flight::create(['name' => 'London to Paris']);
+```
+
+Updating follows the same pattern — fetch a model, mutate its properties, call `save()` again:
+
+```php
+$flight = Flight::find(1);
+$flight->name = 'Paris to London';
+$flight->save();
+```
+
+GORM is not a pure Active Record implementation; a GORM struct has no `Save()` method of its own. Instead, GORM provides a separate `*gorm.DB` query-builder object that operates on structs passed in by pointer, which is closer to a hybrid between Active Record and a Data Mapper:
+
+```go
+user := User{Name: "Jinzhu", Age: 18}
+result := db.Create(&user)
+user.ID             // populated after insert
+result.RowsAffected // rows affected by the operation
+
+db.First(&user)
+user.Name = "jinzhu 2"
+db.Save(&user)       // persists all fields
+```
+
+The struct itself is inert data; every persistence operation is a method called on the shared `db` handle, with the struct passed in as an argument. This means GORM's "model" is really just a plain Go value shape, while the actual behavior lives on the `*gorm.DB` object — a cleaner separation of data from behavior than Eloquent's Active Record style, at the cost of slightly more ceremony (you always need the `db` handle in scope to do anything).
+
+Query Syntax Side by Side
+
+Fetching a single record by primary key:
+
+```go
+// GORM
+var user User
+db.First(&user, 1)
+// SELECT * FROM users ORDER BY id LIMIT 1 WHERE id = 1
+```
+
+```php
+// Eloquent
+$user = User::find(1);
+```
+
+Fetching with a where condition and chaining:
+
+```go
+// GORM
+db.Where("active = ?", true).Order("name").Limit(10).Find(&users)
+```
+
+```php
+// Eloquent
+$users = Flight::where('active', 1)->orderBy('name')->limit(10)->get();
+```
+
+Both APIs read similarly here — a fluent chain of conditions terminated by an action method (`Find`/`get`) — which is a case where GORM's method-chaining query builder and Eloquent's own underlying query builder (which every Eloquent model delegates to) converge on a nearly identical shape, since Eloquent models are themselves powerful query builders. The chief syntactic difference is that GORM passes the destination struct into the terminal call (`Find(&users)`), reflecting Go's lack of generics-based return-type inference in older versions and its preference for explicit output parameters, whereas Eloquent's `get()` simply returns a Collection object as a normal return value, which is more natural in a dynamically typed language.
+
+Updating multiple columns shows a subtler but important difference: GORM's `Updates` method silently skips zero-valued struct fields (empty string, 0, false) when given a struct, because Go structs cannot distinguish "explicitly set to zero" from "never set," and switching to a `map[string]interface{}` is required to force a zero value through:
+
+```go
+db.Model(&user).Updates(User{Name: "hello", Age: 0})       // Age NOT updated (zero value)
+db.Model(&user).Updates(map[string]interface{}{"age": 0})  // Age IS updated
+```
+
+Eloquent's dynamic properties have no equivalent ambiguity, since every attribute assignment is an explicit key-value pair on an associative structure (a PHP array or object property) rather than a zero-initialized struct field, so `Flight::where(...)->update(['delayed' => 0])` unambiguously sets the column to 0.
+
+Relationships
+
+GORM expresses relationships as struct fields whose type is another model (or a slice of one), with the foreign key inferred by naming convention or overridden via tags:
+
+```go
+type User struct {
+  gorm.Model
+  CreditCards []CreditCard              // has many
+}
+type CreditCard struct {
+  gorm.Model
+  Number string
+  UserID uint                           // inferred foreign key
+}
+```
+
+Loading the relationship requires an explicit `Preload` call to avoid the N+1 problem: `db.Preload("CreditCards").Find(&users)`.
+
+Eloquent expresses relationships as methods returning a relationship object, called like a property when accessed without parentheses thanks to PHP's magic `__get`:
+
+```php
+class User extends Model {
+    public function creditCards(): HasMany {
+        return $this->hasMany(CreditCard::class);
+    }
+}
+
+$cards = $user->creditCards; // property-style access triggers the relationship query
+```
+
+Both frameworks solve the same N+1 problem the same conceptual way — eager loading via `Preload()` in GORM or `with()` in Eloquent (`User::with('posts')->get()`) — but Eloquent's relationship methods return typed relationship objects (`HasMany`, `BelongsTo`, `BelongsToMany`) that themselves support further query chaining (`$post->comments()->where('approved', true)->get()`), a level of fluent composability that GORM achieves differently, through the separate Association Mode API (`db.Model(&user).Association("CreditCards").Find(&cards)`).
+
+Migrations Approach
+
+GORM's migration story is comparatively lightweight: calling `AutoMigrate(&User{})` inspects the struct's fields and tags and creates or adjusts the corresponding table to match, adding missing columns and indexes automatically. There is no separate migration-file history the way Laravel has; schema evolution is driven directly off the current shape of your Go structs, which is convenient for early development but offers less explicit control over versioned, reviewable schema changes in a team setting.
+
+Laravel's migrations are a deliberate, versioned alternative: each migration is its own timestamped PHP file with an `up()` method (apply this change) and a `down()` method (reverse it), run explicitly with `php artisan migrate` and reversible with `php artisan migrate:rollback`. This gives Laravel projects a reviewable, ordered history of every schema change ever made, checked into version control alongside the code that depends on it — a more ceremonious but also more auditable approach than GORM's infer-from-struct AutoMigrate model.
+
+Summary
+
+GORM's API reflects Go's own values: explicit, statically typed structs; a separate query-builder object rather than behavior attached to the data type itself; and tag-based configuration in place of a class hierarchy. Eloquent's API reflects PHP's own values: dynamic properties, magic methods, and an Active Record style where the model object is simultaneously the data and the thing that knows how to save itself. Both converge on remarkably similar fluent query syntax for straightforward reads, which says less about the two ORMs being interchangeable and more about how universally that particular pattern (chain conditions, terminate with an action) has proven to be the ergonomic sweet spot for database query builders across languages.

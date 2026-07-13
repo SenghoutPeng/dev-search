@@ -1,0 +1,106 @@
+Middleware Comparison - Gin, Laravel, and Spring Boot Chain Implementations
+
+Introduction
+
+Every one of these three frameworks implements the same conceptual pattern for handling cross-cutting concerns like logging, authentication, and compression: a chain (or pipeline) of processing steps that a request passes through before reaching the final handler, and that the response often passes back through in reverse. The shared name for this pattern is middleware, but each framework expresses the chaining mechanism differently, shaped by its host language's idioms — Gin uses plain functions and an explicit `c.Next()` call, Laravel uses classes implementing a `handle`/`$next` closure contract, and Spring uses interceptors and servlet filters operating at two distinct layers of the request lifecycle.
+
+Gin: The Middleware Stack and c.Next()
+
+A Gin middleware is a function returning `gin.HandlerFunc`, and its defining feature is the explicit `c.Next()` call that marks the boundary between "before" and "after" logic within a single function body:
+
+```go
+func Logger() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        t := time.Now()
+        c.Next()                    // pass control forward; blocks until done
+        latency := time.Since(t)
+        log.Println(latency, c.Writer.Status())
+    }
+}
+```
+
+Calling `c.Next()` hands control to the next middleware or the final route handler in the chain, and execution resumes at the line right after `c.Next()` once everything downstream has finished — this is what allows a single function to contain both "before" code (before `c.Next()`) and "after" code (after `c.Next()`), producing the nested, nesting-doll execution order where the first-registered middleware starts first but finishes last. Calling `c.Abort()` instead of, or in addition to, `c.Next()` prevents any remaining handlers in the chain from running at all — a pattern typically paired with `c.AbortWithStatusJSON(401, ...)` and an explicit `return` for an authentication failure, since `c.Abort()` alone does not stop the currently executing function, only the ones that would otherwise run after it.
+
+Gin attaches middleware at three levels: globally via `router.Use(...)`, applied to every route; on a route group via `group.Use(...)`, applied only to routes registered on that group and its nested subgroups (commonly used to protect an entire `/admin` group with one auth middleware call); and per-route, as additional handler arguments passed directly to `router.GET("/path", middlewareFunc, handler)`. Passing data from a middleware to a downstream handler uses `c.Set("key", value)` and `c.MustGet("key")`, scoped to the lifetime of a single request via the shared `*gin.Context`.
+
+Laravel: The Middleware Pipeline and handle/$next
+
+Laravel middleware is a class with a `handle` method that receives the request and a `$next` closure, and the "before" and "after" phases are similarly split by where the call to `$next($request)` sits in the method body:
+
+```php
+class BeforeMiddleware
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        // before logic
+        return $next($request);
+    }
+}
+
+class AfterMiddleware
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        $response = $next($request);
+        // after logic
+        return $response;
+    }
+}
+```
+
+Calling `$next($request)` passes the request deeper into the pipeline (eventually reaching the route handler), and the returned `$response` flows back out through every middleware in reverse order, each getting a chance to inspect or modify it before it's finally sent to the client. Returning a response directly without calling `$next` short-circuits the pipeline entirely — the standard way to reject a request early, for example redirecting an unauthenticated user back to `/home` from inside a custom middleware's `handle` method.
+
+Laravel middleware is registered globally in `bootstrap/app.php` via `$middleware->append(...)` or `$middleware->prepend(...)`, assigned to individual routes via `->middleware(EnsureTokenIsValid::class)`, grouped under a shared name via `$middleware->appendToGroup('group-name', [...])` (Laravel's built-in `web` and `api` groups bundle session handling, CSRF protection, and cookie encryption automatically for the routes in each corresponding route file), and can even be explicitly excluded from one route within an otherwise-middleware-wrapped group using `->withoutMiddleware([...])`. Laravel additionally supports terminable middleware — a `terminate($request, $response)` method that runs after the response has already been sent to the browser, useful for cleanup work that shouldn't delay the client's response — a lifecycle hook that neither Gin's nor Spring's middleware model exposes directly in the same form.
+
+Spring Boot: Interceptors and Filters at Two Layers
+
+Spring's equivalent to middleware is split across two distinct mechanisms operating at two different layers of the stack. Servlet Filters, part of the underlying servlet specification rather than Spring MVC itself, wrap the entire request-processing pipeline at the lowest level, before Spring's own dispatcher servlet routes the request to a controller:
+
+```java
+@Component
+public class LoggingFilter implements Filter {
+  public void doFilter(ServletRequest request, ServletResponse response,
+      FilterChain chain) throws IOException, ServletException {
+    // before logic
+    chain.doFilter(request, response);   // pass control forward
+    // after logic
+  }
+}
+```
+
+`chain.doFilter(request, response)` plays exactly the same structural role as Gin's `c.Next()` and Laravel's `$next($request)` — it hands control to the next filter or, eventually, to Spring's own dispatcher — and code after that call runs on the way back out, giving filters the same before/after split as the other two frameworks' middleware.
+
+HandlerInterceptor sits one layer higher, inside Spring MVC itself, and is aware of which controller method is about to handle the request (something a raw servlet Filter is not, since filters run before Spring MVC has even resolved a handler):
+
+```java
+@Component
+public class AuthInterceptor implements HandlerInterceptor {
+  public boolean preHandle(HttpServletRequest request,
+      HttpServletResponse response, Object handler) {
+    String token = request.getHeader("Authorization");
+    if (token == null) {
+      response.setStatus(401);
+      return false;   // short-circuits: postHandle and the controller never run
+    }
+    return true;      // proceed to the controller
+  }
+  public void postHandle(HttpServletRequest request, HttpServletResponse response,
+      Object handler, ModelAndView modelAndView) { /* after controller, before view render */ }
+  public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
+      Object handler, Exception ex) { /* after the view has been rendered */ }
+}
+```
+
+Rather than a single function split by a `next()` call, `HandlerInterceptor` exposes three separate named methods corresponding to three separate points in the request lifecycle: `preHandle` (before the controller method runs, returning false to abort), `postHandle` (after the controller method but before the view is rendered), and `afterCompletion` (after the entire request, including view rendering, has completed). This is a more granular decomposition of the "before/after" split than Gin's or Laravel's single-function-with-a-call-in-the-middle approach, at the cost of spreading one middleware's logic across up to three separate method bodies. Interceptors are registered centrally through a `WebMvcConfigurer` bean rather than attached inline at each route, and can be scoped to specific URL patterns through that same central registration.
+
+Comparing Execution Order and Short-Circuiting
+
+All three frameworks share the same nested execution order: the first middleware/filter/interceptor registered runs its "before" logic first and its "after" logic last, exactly mirroring how nested function calls unwind. Where they differ is in how short-circuiting is expressed: Gin uses an explicit `c.Abort()` call (which must be paired with a `return` to also stop the current function), Laravel simply returns a response instead of calling `$next`, and Spring's `HandlerInterceptor.preHandle` uses a boolean return value (`false` aborts) while a servlet `Filter` short-circuits simply by not calling `chain.doFilter`. Conceptually identical, but each mechanism reads naturally within its own host language: Go's explicit control flow favors an explicit abort call, PHP's expression-oriented style favors a plain early return, and Java's older interceptor interface favors a boolean sentinel value predating more modern idioms.
+
+Comparing Registration and Scoping
+
+Gin's registration is the most colocated with route definitions — middleware is frequently attached directly where a route or group is declared (`router.GET("/benchmark", MyBenchLogger(), benchEndpoint)`), which keeps a route's full behavior visible in one place but can scatter middleware wiring across a large codebase if not organized carefully. Laravel sits in the middle — middleware is aliased and grouped centrally in `bootstrap/app.php`, but attached to specific routes by name at the point of route definition, balancing central discoverability of what a middleware alias does against local visibility of which routes use it. Spring's interceptor and filter registration is the most centralized of the three, typically configured in one or a small number of `@Configuration` classes rather than inline at each route, which suits larger codebases where consistent enforcement of cross-cutting policy matters more than seeing each middleware attached directly next to the route it protects.
+
+Summary
+
+Gin, Laravel, and Spring Boot all implement the same chain-of-responsibility pattern for request processing, differing mainly in how explicit versus structured the before/after split is (a single function with one `next()` call, versus three named interceptor methods), how short-circuiting is signaled (abort call, early return, or boolean), and how centrally middleware registration lives relative to route definitions. The underlying goal in all three is identical: let cross-cutting concerns like logging, authentication, and compression be written once and composed cleanly around business logic, rather than duplicated inside every handler.

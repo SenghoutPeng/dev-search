@@ -1,0 +1,218 @@
+HTTP Fundamentals - Hypertext Transfer Protocol
+
+Introduction
+
+HTTP (Hypertext Transfer Protocol) is an application-layer protocol for transmitting hypermedia documents between web browsers and servers. It follows a classical client-server model where a client opens a connection, makes a request, and a server processes the request and sends a response. HTTP is stateless, meaning servers don't retain session data between requests, though cookies and tokens can add state capability.
+
+Request-Response Flow
+
+The fundamental flow of HTTP communication is:
+1. Client establishes a connection to the server
+2. Client sends an HTTP request with a method, headers, and optional body
+3. Server processes the request and generates a response
+4. Server sends the HTTP response with a status code, headers, and optional body
+5. Connection is closed or kept alive for additional requests
+
+Every HTTP interaction follows this pattern, making it predictable and easy to implement across different platforms and languages.
+
+HTTP Methods
+
+HTTP methods indicate the purpose of a request and what operation the client wants to perform:
+
+GET: Retrieve data from the server. Used for fetching web pages, images, JSON data. GET requests should not have side effects and are idempotent (can be called multiple times without changing state). Most commonly used method.
+
+POST: Send data to the server to create a new resource. Used for form submissions, uploading files, creating database records. POST requests can have side effects and are not idempotent (repeated calls may create multiple resources).
+
+PUT: Replace an entire resource on the server. Used to update an existing resource completely. If the resource doesn't exist, some servers create it. PUT is idempotent (calling it multiple times with the same data produces the same result).
+
+PATCH: Partially update a resource. Send only the fields you want to change, rather than replacing the entire resource. PATCH is semantically for partial modifications.
+
+DELETE: Remove a resource from the server. Deletes the specified resource. DELETE is idempotent (deleting twice has the same effect as deleting once).
+
+HEAD: Like GET but requests only the headers without the response body. Used to check if a resource exists or get metadata without downloading the full content.
+
+OPTIONS: Request information about communication options available for a resource. Often used for CORS preflight requests to check what HTTP methods are allowed.
+
+CONNECT: Establish a tunnel connection, typically for proxying. Less commonly used in standard web development.
+
+TRACE: Request a diagnostic trace of how the request travels through proxies. Rarely used and sometimes disabled for security reasons.
+
+Status Codes
+
+HTTP status codes indicate the outcome of a request, organized into five classes (1xx through 5xx):
+
+1xx Informational:
+- 100 Continue: Request is valid, client should continue sending the body
+- 101 Switching Protocols: Server agrees to upgrade the connection (HTTP to WebSocket)
+- 103 Early Hints: Server sends hints before final response
+
+2xx Success (Request succeeded):
+- 200 OK: Request succeeded, response contains the requested data
+- 201 Created: Request succeeded and a new resource was created
+- 202 Accepted: Request accepted for processing but not yet complete
+- 204 No Content: Request succeeded but no content to return (common for DELETE)
+- 206 Partial Content: Server returns only part of the resource (range requests)
+
+3xx Redirection (Client must take action to complete request):
+- 300 Multiple Choices: Multiple representations of a resource available
+- 301 Moved Permanently: Resource moved to new URL permanently (update bookmarks)
+- 302 Found: Resource moved to new URL temporarily
+- 304 Not Modified: Cached version is still valid, don't download again
+- 307 Temporary Redirect: Like 302 but preserves request method
+- 308 Permanent Redirect: Like 301 but preserves request method
+
+4xx Client Error (Client sent invalid request):
+- 400 Bad Request: Malformed request syntax or invalid parameters
+- 401 Unauthorized: Authentication required, credentials not provided
+- 403 Forbidden: Authenticated but not authorized to access this resource
+- 404 Not Found: Resource doesn't exist on the server
+- 405 Method Not Allowed: HTTP method not supported for this resource
+- 409 Conflict: Request conflicts with current state (duplicate creation)
+- 422 Unprocessable Entity: Request is well-formed but contains semantic errors
+- 429 Too Many Requests: Client sent too many requests (rate limit exceeded)
+
+5xx Server Error (Server failed to process valid request):
+- 500 Internal Server Error: Unexpected server condition, generic error
+- 502 Bad Gateway: Invalid response from upstream server
+- 503 Service Unavailable: Server temporarily unable to handle requests
+- 504 Gateway Timeout: Upstream server didn't respond in time
+
+HTTP Headers
+
+Headers are name-value pairs that send metadata about the request or response, describing how content should be handled.
+
+Common Request Headers:
+Host: example.com (required, specifies the domain being requested)
+User-Agent: Mozilla/5.0... (identifies the client application)
+Accept: application/json (specifies preferred content types)
+Accept-Language: en-US (preferred languages)
+Accept-Encoding: gzip, deflate (supported compression methods)
+Content-Type: application/json (format of request body)
+Content-Length: 348 (size of request body in bytes)
+Authorization: Bearer token123 (authentication credentials)
+Cookie: sessionId=abc123 (session or tracking data)
+Referer: https://example.com/page (where request originated from)
+
+Common Response Headers:
+Content-Type: application/json (format of response body)
+Content-Length: 1234 (size of response body)
+Content-Encoding: gzip (compression applied to body)
+Cache-Control: max-age=3600 (how long to cache response)
+Set-Cookie: sessionId=xyz789; Path=/ (set cookie on client)
+ETag: "abc123" (unique identifier for resource version)
+Last-Modified: Wed, 21 Oct 2025 07:28:00 GMT (when resource was last updated)
+Location: /new-location (where to find resource after redirect)
+Server: Apache/2.4.41 (identifies server software)
+Allow: GET, POST, PUT, DELETE (which methods are allowed)
+
+Headers by Purpose:
+
+Caching headers control how responses are cached:
+Cache-Control: Directives like max-age=3600, no-cache, public, private
+ETag: Hash of resource for conditional requests
+Expires: Absolute time when cached copy expires
+Last-Modified: Server time when resource was last updated
+
+Security headers protect against attacks:
+Content-Security-Policy: Controls which resources can load and execute
+Strict-Transport-Security: Force use of HTTPS only
+X-Frame-Options: Prevent clickjacking attacks
+X-Content-Type-Options: Prevent MIME type sniffing
+X-XSS-Protection: Enable browser XSS protection
+
+CORS headers manage cross-origin requests:
+Access-Control-Allow-Origin: Which origins can access resource
+Access-Control-Allow-Methods: Which HTTP methods are allowed
+Access-Control-Allow-Headers: Which custom headers are allowed
+Access-Control-Allow-Credentials: Whether cookies/auth can be sent
+
+Content negotiation headers:
+Accept: Client-preferred content types (application/json, text/html)
+Content-Type: Actual type of response body
+Accept-Language: Client language preferences
+Accept-Encoding: Compression methods client supports
+
+HTTP Versions
+
+HTTP/1.0 (1996): Original HTTP, new connection per request, basic headers
+HTTP/1.1 (1997): Persistent connections, pipelining, caching improvements, Host header required
+HTTP/2 (2015): Binary framing, multiplexing multiple streams, header compression
+HTTP/3 (2022): Uses QUIC protocol, further performance improvements, connection mobility
+
+Key HTTP Features and Mechanisms
+
+Persistent Connections: In HTTP/1.1, a single TCP connection can handle multiple requests without closing, reducing overhead. Keep-Alive headers control this behavior.
+
+Content Negotiation: Clients use Accept headers to announce preferred formats, and servers respond accordingly. This allows servers to serve different versions of the same resource based on client preferences.
+
+Compression: Servers can compress response bodies (gzip, deflate) to reduce bandwidth. The Content-Encoding header indicates which compression was used.
+
+Caching: Multiple cache levels (browser cache, proxy cache, server cache) reduce server load. Conditional requests using If-Modified-Since or ETags allow clients to validate cached versions.
+
+HTTP Cookies: Small pieces of data stored on client and sent with requests. Enables stateful interactions despite HTTP being stateless. Set-Cookie header creates cookies, Cookie header sends them.
+
+Authentication: Multiple mechanisms from simple Basic auth (username:password encoded) to Bearer tokens (JWT, OAuth tokens). Authorization header carries credentials.
+
+Range Requests: Allow clients to request specific byte ranges of large files. Range header specifies bytes, Content-Range indicates what's returned. Useful for resumable downloads.
+
+Redirects: Status codes 3xx instruct clients to fetch a different URL. Location header provides the new URL. Useful for moving resources, short URLs, or temporary redirects.
+
+Protocol Upgrade: Connection can be upgraded to WebSocket for persistent bidirectional communication using Upgrade header and 101 status code.
+
+MIME Types
+
+Content is transmitted using MIME types specified in Content-Type header:
+
+text/plain: Plain text
+text/html: HTML markup
+text/css: Cascading stylesheets
+application/json: JSON data (very common in APIs)
+application/xml: XML data
+application/javascript: JavaScript code
+image/jpeg: JPEG image
+image/png: PNG image
+image/svg+xml: SVG vector graphic
+image/gif: GIF animation
+video/mp4: MP4 video file
+audio/mpeg: MP3 audio file
+application/octet-stream: Binary data, download as file
+application/pdf: PDF document
+multipart/form-data: Form submission with files
+
+Common HTTP Use Cases
+
+Fetching a web page:
+GET /index.html HTTP/1.1
+Host: example.com
+
+Submitting form data:
+POST /api/users HTTP/1.1
+Host: example.com
+Content-Type: application/json
+Content-Length: 27
+
+{"name":"John","age":30}
+
+Updating a user resource:
+PUT /api/users/123 HTTP/1.1
+Host: example.com
+Content-Type: application/json
+
+{"name":"Jane","age":31}
+
+Partial update (just age):
+PATCH /api/users/123 HTTP/1.1
+Host: example.com
+Content-Type: application/json
+
+{"age":32}
+
+Deleting a resource:
+DELETE /api/users/123 HTTP/1.1
+Host: example.com
+
+Checking if resource exists without downloading:
+HEAD /large-file.zip HTTP/1.1
+Host: example.com
+
+HTTP is extensible through custom headers and continuously evolving. Understanding these fundamentals is essential for building and debugging web applications.

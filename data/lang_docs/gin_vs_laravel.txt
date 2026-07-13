@@ -1,0 +1,41 @@
+Gin vs Laravel - Minimalist vs Batteries-Included
+
+Introduction
+
+Gin (a Go web framework) and Laravel (a PHP web framework) sit at nearly opposite ends of the "how much does the framework give you out of the box" spectrum. Gin gives you a fast HTTP router and a middleware mechanism, and essentially nothing else — you assemble everything from routing conventions to authentication to database access yourself, typically from separate Go modules. Laravel gives you a router, an ORM, an authentication system, a templating engine, a validation layer, a queue system, and a CLI code generator, all designed to work together out of the box. Neither approach is objectively better; they represent different bets about what a web framework's job actually is.
+
+Routing and Request Handling
+
+Gin's routing is a thin, explicit layer over Go's net/http: `router.GET("/user/:name", handler)`, `router.POST("/user", handler)`, with named path parameters read via `c.Param()` and query parameters via `c.Query()`. Gin does not enforce any particular resource-routing convention; the common RESTful CRUD mapping onto GET/POST/PUT/PATCH/DELETE is something Go developers apply themselves as a convention, not something the framework generates for you. Request bodies are bound into Go structs with `c.ShouldBindJSON(&struct)`, using struct tags like `binding:"required"` for basic validation, but there is no separate validation subsystem beyond what the binding tags express.
+
+Laravel's routing is similarly close to the underlying HTTP verbs (`Route::get`, `Route::post`, and so on) but layers substantial convenience on top: `Route::resource('photos', PhotoController::class)` generates all seven standard CRUD routes and their corresponding controller method stubs in a single line, route model binding automatically resolves an Eloquent model instance from a route parameter (`Route::get('/users/{user}', function (User $user) { ... })` fetches the User row for you, returning a 404 automatically if it isn't found), and a dedicated Form Request validation layer (`php artisan make:request StorePostRequest`) lets a whole set of validation rules live in its own class, run automatically before a controller method ever executes.
+
+No Built-In ORM vs Eloquent Included
+
+This is one of the starkest differences. Gin ships with no database layer whatsoever; a Gin project commonly pulls in GORM as a separate dependency, configures the connection itself, and defines its own struct-tag-based models (`type User struct { ID uint; Name string }`), with every migration, association, and query written explicitly against GORM's API. There is no assumption baked into Gin about how your data layer should be structured, which gives full control but also means every project reinvents its own conventions for models, repositories, and migrations.
+
+Laravel ships with Eloquent as its default ORM, deeply integrated with the rest of the framework: an Eloquent model is both the data-access layer and, through mass-assignment protection (`$fillable`), a request-input security boundary; relationships are declared once as methods (`hasMany`, `belongsTo`, `belongsToMany`) and then traversed like ordinary object properties (`$user->posts`); and migrations, seeders, and factories are all wired together through Artisan commands, so `php artisan make:model Flight --migration` produces a matching model and migration file pair with no manual boilerplate. A Laravel developer rarely needs to consider a different ORM at all unless the project has unusual requirements.
+
+Authentication and Authorization: DIY vs Scaffolded
+
+Gin has no concept of authentication or authorization built in. A typical Gin project writes its own middleware, most often a JWT-checking function that reads the Authorization header, verifies the token, and stashes claims onto the Gin context with `c.Set("user", user)` for downstream handlers to read with `c.MustGet("user")`. Every piece — token issuance, refresh, revocation, and role checking — is assembled by hand or from third-party Go packages chosen by the team.
+
+Laravel ships with a configurable authentication system built around guards (how a request is authenticated — session-based for web routes, token-based for API routes) and providers (how users are retrieved, typically via Eloquent). `Auth::attempt($credentials)` handles the entire password-check-and-log-in flow, the `auth` middleware protects routes with one line (`->middleware('auth')`), and a full authorization layer of Gates and Policies (`Gate::authorize('update', $post)`, or a Policy class with an `update` method) provides fine-grained, testable access control with no additional packages required. Laravel further ships an official first-party package, Sanctum, specifically for lightweight API token authentication, and Passport for full OAuth2 server support.
+
+Middleware and Request Pipeline
+
+Both frameworks use a similar conceptual pipeline, but expressed differently. Gin middleware is a plain function returning `gin.HandlerFunc`, chained by calling `c.Next()` to pass control forward and `c.Abort()` to stop the chain early; middleware can be attached globally (`router.Use(...)`), to a route group (`group.Use(...)`), or per-route as extra handler arguments. Laravel middleware is a class implementing a `handle($request, Closure $next)` method, registered by alias in `bootstrap/app.php` and attached to routes or groups by name (`->middleware('auth')`, or `Route::middleware(['first', 'second'])->group(...)`); calling `$next($request)` passes control forward, and returning a response without calling `$next` short-circuits the pipeline. The conceptual chain-of-responsibility pattern is identical; Gin expresses it as bare functions closing over `*gin.Context`, while Laravel expresses it as named, resolvable classes managed by the service container.
+
+Templating and Views
+
+Gin has no first-party templating system beyond what Go's standard `html/template` package offers if a project chooses to render server-side HTML at all; most Gin projects are pure JSON APIs with no view layer whatsoever. Laravel ships Blade, a templating engine with directives like `@if`, `@foreach`, and `@auth` compiled down to plain PHP, tightly integrated with the rest of the framework (a validation failure automatically makes an `$errors` variable available in any Blade view via middleware).
+
+When to Pick Each
+
+Gin is the natural choice when a team wants full control over every architectural decision, is building a performance-sensitive service (a small API gateway, a proxy, an internal microservice) where every dependency and abstraction layer has a cost, or is staffed with engineers who already have strong opinions about which ORM, validation library, and auth approach to use and don't want a framework's defaults in the way. It is also a common choice specifically for JSON-only APIs and microservices, where a server-rendered view layer is simply unnecessary.
+
+Laravel is the natural choice when a team wants to move quickly on a full web application — with server-rendered pages, forms, sessions, and typical CRUD workflows — without assembling a data layer, auth system, and validation framework from scratch, or when the project's scope and requirements are not yet fully known and the convenience of swapping in Laravel's well-tested defaults outweighs the cost of accepting its opinions. Laravel is also generally preferable when the team is not deeply expert in the underlying language's ecosystem and would benefit from a framework that has already made most of the hard integration decisions for them.
+
+Summary
+
+Gin's minimalism and Laravel's batteries-included philosophy both flow from a coherent design bet: Gin bets that Go developers want maximal control and minimal magic, accepting the extra assembly work in exchange for a smaller, more transparent surface area; Laravel bets that most web applications share enough common shape that a well-designed set of defaults, conventions, and first-party packages will save far more time than they cost in flexibility. Choosing between them is really choosing which of those two bets matches your team and project.

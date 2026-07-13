@@ -1,0 +1,226 @@
+Spring Boot: Getting Started
+
+Source: https://spring.io/guides/gs/spring-boot
+
+What You Will Build
+
+This guide walks through building a straightforward web application with Spring Boot and adding a few practical services on top of it. The whole exercise is designed to take about fifteen minutes, which reflects Spring Boot's central goal: getting a working application running with as little upfront ceremony as possible.
+
+Prerequisites
+
+Following along requires Java 17 or a newer version, either Gradle 7.5 or later or Maven 3.5 or later, and a text editor or IDE; Spring Tool Suite, IntelliJ IDEA, and VSCode are all commonly recommended choices. None of the tooling is mandatory beyond a working build tool and JDK, since Spring Boot applications are ordinary Java applications underneath.
+
+How Spring Boot Reduces Setup
+
+Spring Boot streamlines development by making intelligent assumptions about what a project needs based on the dependencies present on its classpath and the beans already configured. For instance, if the spring-boot-starter-web dependency is present, Spring Boot automatically provisions the beans needed for a web application and embeds a Tomcat server, so there is no separate server installation step. Similarly, if a templating engine such as Thymeleaf is on the classpath, Spring Boot wires in the beans needed to render templates automatically. This automatic configuration minimizes the amount of infrastructure setup a developer has to write by hand, while still leaving the developer free to override any default by supplying an explicit configuration of their own.
+
+Starting a Project with Spring Initializr
+
+The recommended way to begin a new Spring Boot project is through start.spring.io, known as the Spring Initializr. A developer selects Gradle or Maven as the build tool, Java as the language, adds the desired starter dependencies such as Spring Web, and generates a ready-to-import project archive. This service handles nearly all of the foundational configuration automatically, producing a project skeleton that already knows how to build, test, and run itself.
+
+The Main Application Class
+
+Every Spring Boot application has a main class annotated with @SpringBootApplication. This single annotation is a convenience that rolls up three separate annotations. @Configuration marks the class as a source of bean definitions for the application context. @EnableAutoConfiguration tells Spring Boot to start guessing how the application should be configured, based on the jar dependencies it finds on the classpath. @ComponentScan tells Spring to look for other components, configurations, and services in the current package and its sub-packages, so controllers and services do not have to be registered by hand.
+
+A Simple Web Controller
+
+A minimal REST controller uses the @RestController annotation, which combines @Controller and @ResponseBody so that method return values are written directly to the HTTP response body rather than resolved to a view. A method annotated with @GetMapping("/") handles GET requests to the root path and can simply return a String, such as "Greetings from Spring Boot!", which Spring Boot serializes straight into the response.
+
+Running the Application
+
+A Spring Boot application can be started with ./gradlew bootRun for Gradle-based projects or ./mvnw spring-boot:run for Maven-based projects. On startup, the console output lists the beans that Spring created or auto-configured, including things like a tomcatServletWebServerFactory bean, confirming that the embedded server was configured automatically. Once running, hitting the configured endpoint with a tool such as curl returns the expected response body immediately, with no separate deployment step required.
+
+Testing and Production Features
+
+Spring Boot ships with dedicated test starters; adding a test starter dependency and using MockMvc lets a developer simulate HTTP requests against controllers without starting a real server. Alternatively, @SpringBootTest combined with a random port web environment spins up an embedded server for full integration-style tests. Adding the spring-boot-starter-actuator dependency exposes a set of management endpoints, such as /actuator/health, out of the box, giving an application health checks and other operational visibility with no additional code.
+
+Dependency Management with Starters
+
+Spring Boot organizes common groups of related dependencies into starter artifacts, such as spring-boot-starter-web for building web applications and REST services, spring-boot-starter-data-jpa for database access through Spring Data JPA, and spring-boot-starter-test for testing support. Each starter pulls in a curated, mutually compatible set of underlying libraries at versions known to work well together, so a developer generally only needs to add the single starter that matches the capability they need, rather than hunting down and manually pinning the version of every individual library that capability depends on.
+
+The Spring Application Context
+
+At the heart of every Spring Boot application sits the application context, a container that manages the lifecycle of every bean, meaning every object that Spring is responsible for creating and wiring together. When SpringApplication.run is called from the main method, Spring bootstraps this context, applies auto-configuration based on the classpath, scans for annotated components, and wires dependencies between beans automatically wherever a constructor or field declares what it needs, a mechanism generally referred to as dependency injection. Understanding the application context as the central object graph that Spring builds and manages is fundamental to understanding how the rest of the framework's annotations and features fit together.
+
+Dependency Injection Basics
+
+Spring Boot beans commonly declare their dependencies as constructor parameters, and Spring automatically supplies the appropriate bean instance for each parameter when it constructs the object, a pattern known as constructor injection and now the generally recommended style over field injection. A class annotated with @Service, @Repository, or @Component becomes a candidate bean that Spring's component scanning discovers automatically, and any other bean that declares a constructor parameter of that class's type, or of an interface it implements, receives the fully constructed instance automatically without any manual wiring code. This inversion of control is what allows Spring Boot applications to be composed out of loosely coupled, independently testable pieces, since each class simply declares what it needs and trusts the container to supply it.
+
+Packaging and Deployment
+
+A Spring Boot application is typically packaged as an executable jar file containing both the application's own compiled classes and all of its dependencies, including an embedded servlet container such as Tomcat, Jetty, or Undertow. This means a Spring Boot application can be run directly with a simple java -jar command on any machine with a compatible JDK installed, without needing a separate application server to be installed and configured first. Spring Boot applications can alternatively be packaged as a traditional WAR file for deployment to an existing external servlet container, for organizations that still standardize on that older deployment model.
+
+
+Spring Boot: REST Controllers
+
+Source: https://spring.io/guides/gs/rest-service
+
+Overview
+
+This guide walks through building a simple Hello World style RESTful web service with Spring. The finished service accepts HTTP GET requests at a given path and responds with a JSON document containing a customizable greeting, demonstrating the basic shape that most Spring Boot REST endpoints follow.
+
+The Greeting Resource Class
+
+The foundation of the service is a small resource representation class that models the shape of the response data. Using a Java record, the Greeting type carries two fields: a numeric id and a String content holding the greeting message. This minimal structure becomes the contract for the API's responses. Because Jackson, the JSON processing library that Spring Web includes by default, understands ordinary Java objects and records, Spring can automatically marshal instances of Greeting into JSON without any manual serialization code.
+
+The GreetingController Class
+
+Incoming HTTP requests are handled by a GreetingController class, annotated with @RestController. This annotation marks the class as a controller where every method returns a domain object directly, rather than the name of a view to be rendered, since @RestController folds together @Controller and @ResponseBody. The controller keeps an AtomicLong counter, which increments in a thread-safe way with each request, and a static formatting template, "Hello, %s!", used to personalize each response.
+
+Mapping Requests
+
+The @GetMapping("/greeting") annotation maps incoming HTTP GET requests specifically to the /greeting endpoint, and is generally preferred over the older, more generic @RequestMapping style because it reads more directly as "this method handles GET requests here." The controller's greeting method accepts an optional name parameter through @RequestParam, which binds the value of the name query-string parameter to the method parameter of the same name. The annotation's defaultValue attribute is set to "World", so a request made without a name parameter still succeeds and simply greets the world.
+
+Generating the Response
+
+Each time the endpoint is hit, the controller method creates a new Greeting object using the current, incremented value of the counter along with a formatted greeting string built from the requested name. Spring automatically serializes the returned Greeting object into JSON on the way out, using its JacksonJsonHttpMessageConverter, so no manual conversion code needs to be written in the controller itself.
+
+Testing the Service
+
+Once the application is running locally on port 8080, visiting /greeting in a browser or with curl returns a JSON body such as id 1 and content "Hello, World!". Adding a query parameter, for example /greeting?name=User, personalizes the response to "Hello, User!" while also incrementing the id counter, which demonstrates that the very same controller instance keeps handling and counting every subsequent request rather than being recreated per call.
+
+Handling Path Variables
+
+Beyond query parameters, Spring MVC controllers commonly bind values embedded directly in the URL path using @PathVariable. A method mapped with @GetMapping("/greeting/{name}") can declare a String name parameter annotated with @PathVariable, and Spring extracts the matching path segment automatically and passes it into the method. This is the idiomatic way to model resource identifiers in a REST API, for example mapping GET requests to /customers/{id} onto a method that looks up and returns a single customer record by its identifier, rather than requiring that identifier to be passed as a query string parameter.
+
+Handling POST, PUT, and DELETE
+
+A controller is not limited to read-only GET endpoints. The @PostMapping annotation maps HTTP POST requests, typically used to create a new resource, and is commonly paired with @RequestBody, which tells Spring to deserialize the incoming JSON request body directly into a Java object argument. @PutMapping and @PatchMapping map HTTP PUT and PATCH requests respectively, generally used to update an existing resource, while @DeleteMapping maps HTTP DELETE requests used to remove a resource. Each of these annotations is really shorthand for the more general @RequestMapping annotated with the corresponding HTTP method, and using the shorthand form keeps controller code both terser and easier to scan.
+
+Returning Status Codes and ResponseEntity
+
+Simple controller methods that return a plain object, like the Greeting example, implicitly respond with an HTTP 200 status. When a controller needs finer control over the response, such as returning a 201 Created status after successfully creating a resource, or a 404 Not Found when a lookup fails, it can wrap the response body in a ResponseEntity. ResponseEntity lets a method specify the status code, any custom headers, and the response body all together, and is the standard way to build a REST endpoint whose response varies depending on the outcome of the underlying operation.
+
+Validating Request Bodies
+
+Incoming request bodies bound with @RequestBody can be validated automatically by adding the @Valid annotation to the method parameter and annotating the target class's fields with Bean Validation constraints, such as @NotBlank or @Size. If validation fails, Spring raises a MethodArgumentNotValidException before the controller method body ever executes, and this can be turned into a well-formed error response using an @ExceptionHandler method or a global @ControllerAdvice class, which centralizes error-response formatting across every controller in the application rather than duplicating it in each one.
+
+Exception Handling in Controllers
+
+Spring MVC lets a controller, or a shared @ControllerAdvice class, declare @ExceptionHandler methods that intercept exceptions thrown while processing a request and convert them into an appropriate HTTP response. For example, a handler for a custom ResourceNotFoundException can return a ResponseEntity with a 404 status and a descriptive error body, ensuring that clients of the API receive consistent, structured error information instead of a raw stack trace or a generic 500 response.
+
+Content Negotiation
+
+Spring MVC controllers can produce and consume more than one representation format for the same endpoint, most commonly JSON and XML, through content negotiation. The produces and consumes attributes on mapping annotations like @GetMapping restrict a given handler method to specific media types, and Spring inspects the request's Accept header, or a file extension, to decide which handler method, and therefore which HttpMessageConverter, should handle a given request. In practice, most modern REST APIs standardize on JSON exclusively and rarely need to configure content negotiation explicitly, since Jackson-based JSON conversion is already the default for any object returned from a @RestController.
+
+Cross-Origin Requests
+
+Browsers restrict JavaScript running on one origin from freely calling an API hosted on a different origin unless that API explicitly allows it, a browser security policy known as the same-origin policy. Spring MVC controllers can opt in to accepting requests from other origins using the @CrossOrigin annotation on a controller class or an individual handler method, specifying which origins, HTTP methods, and headers are permitted. For an application-wide policy rather than a per-controller one, a WebMvcConfigurer bean can register CORS mappings centrally, which is generally the preferred approach once more than a handful of controllers need to allow cross-origin access.
+
+Testing REST Controllers
+
+Spring Boot's test starter includes MockMvc, which lets a test send simulated HTTP requests directly against a controller's mapped methods without starting a real embedded server, verifying the resulting status code, headers, and JSON body using a fluent assertion API. For higher-fidelity, full-stack tests, @SpringBootTest combined with a random port web environment starts an actual embedded server and lets a test issue real HTTP calls using a REST client, exercising the entire request-handling pipeline, including filters and any configured security, exactly as it would run in production.
+
+
+Spring Boot: Spring Data JPA Basics
+
+Source: https://spring.io/guides/gs/accessing-data-jpa
+
+Introduction to Spring Data JPA
+
+Spring Data JPA is a framework for managing data persistence against relational databases. Its central strength is generating repository implementations automatically at runtime, which removes most of the boilerplate code that database access traditionally requires, such as hand-written data access objects and manually mapped SQL statements.
+
+The Customer Entity
+
+At the center of a typical Spring Data JPA application sits an entity class, such as Customer, which represents a row in a database table. The class is annotated with @Entity to mark it as a JPA-managed object, and by default the framework assumes the entity maps to a table sharing the class's name. A Customer entity typically declares three properties: an identifier, a first name, and a last name. The identifier field is marked with both @Id and @GeneratedValue, which tells Spring Data JPA that the id should be generated automatically by the database rather than assigned manually by application code. The remaining fields follow a simple convention where the field name corresponds directly to the database column name, needing no further annotation. It is common to include a protected no-argument constructor purely for JPA's own internal use, alongside a public constructor that accepts the customer's first and last names for use during normal application logic.
+
+The CustomerRepository Interface
+
+The most distinctive feature of Spring Data JPA is the repository abstraction. Instead of writing an implementation class by hand, a developer defines a repository interface, typically extending CrudRepository, and Spring Data JPA generates a working implementation automatically at runtime. The entity type and its id type, such as Customer and Long, are specified as generic parameters on CrudRepository, which keeps repository operations fully type-safe. Custom query methods can be declared purely by their method signature; for example, a method named findByLastName automatically implements a search based on a customer's surname, without any query being written by hand, because Spring Data JPA derives the query from the method name itself.
+
+Core Repository Operations
+
+CrudRepository supplies a set of inherited methods covering the fundamental persistence operations: saving new entities, deleting existing ones, and retrieving records in a variety of ways. findAll retrieves every customer record from the underlying table. findById retrieves a single customer using its unique identifier, typically returning an Optional to represent the possibility that no matching row exists. Custom finder methods, like the findByLastName example, allow queries based on arbitrary entity attributes and can return a list of matches when more than one row satisfies the criteria.
+
+The Application Class
+
+A typical Spring Data JPA demo application uses @SpringBootApplication, which consolidates the same trio of annotations found in any Spring Boot application, flagging it as configuration, enabling auto-configuration, and enabling component scanning. The demonstration usually takes the shape of a CommandLineRunner bean that executes automatically at startup: it saves a handful of sample customer records through the repository, then retrieves them back using findAll, findById, and the custom findByLastName method, logging the results to prove that the JPA layer is correctly persisting and querying data, often against an in-memory database used purely for the demo.
+
+Derived Query Methods in Depth
+
+Spring Data JPA can derive an implementation for many query methods purely from their name, without any query annotation at all, as long as the method follows a recognized naming convention. A method beginning with findBy, readBy, queryBy, getBy, or countBy is treated as a query, and the remainder of the name is parsed against the entity's property names to build the underlying query automatically. Keywords like And and Or combine multiple conditions, so findByLastNameAndFirstName generates a query matching both fields at once, while comparison keywords such as LessThan, GreaterThan, Between, Like, and IsNull refine how each property is compared. This derivation mechanism covers a large fraction of everyday queries without requiring a single line of JPQL or SQL to be written by hand.
+
+Using @Query for Custom Queries
+
+When a query cannot be expressed naturally through method-name derivation, a method on a repository interface can be annotated directly with @Query, supplying either JPQL, which operates over entity objects and their properties rather than raw table and column names, or, with nativeQuery set to true, plain native SQL. This escape hatch lets a project mix the convenience of derived queries for straightforward lookups with the full expressive power of hand-written queries for anything more elaborate, such as joins across multiple entities or aggregate computations, all still returned as typed Java objects.
+
+Pagination and Sorting
+
+Rather than extending plain CrudRepository, a repository can extend PagingAndSortingRepository, which adds overloads of the standard finder methods that accept a Pageable or a Sort argument. Passing a Pageable built with a given page number, page size, and sort order returns a Page object containing just that slice of the full result set, along with metadata like the total number of pages and total element count, which is essential for building APIs that browse large tables of records without loading every row into memory at once.
+
+Relationships Between Entities
+
+Spring Data JPA supports the same relationship annotations as plain JPA, including @OneToMany, @ManyToOne, @OneToOne, and @ManyToMany, letting one entity reference another, or a collection of others, directly as a typed field. These annotations control how related rows are joined and loaded, and are commonly combined with a fetch type, either eager or lazy, that determines whether related data is pulled in immediately alongside the owning entity or only when it is actually accessed, which has a significant effect on an application's query performance and the number of database round trips it makes.
+
+Transactional Behavior
+
+Methods that modify data, such as custom @Modifying queries or service-layer methods that call multiple repository operations in sequence, are typically wrapped in a Spring-managed transaction using the @Transactional annotation. Spring Data JPA's built-in CrudRepository methods, like save and delete, are already transactional by default, ensuring that a single logical operation either completes in full or leaves the database entirely unchanged if an error occurs partway through, which is fundamental to keeping data consistent as an application grows more complex.
+
+Auditing Support
+
+Spring Data JPA can automatically populate common audit fields, such as when an entity was created, when it was last modified, and which user performed each action, through annotations like @CreatedDate, @LastModifiedDate, @CreatedBy, and @LastModifiedBy on entity fields, combined with enabling @EnableJpaAuditing on a configuration class. This removes the need to manually set timestamp fields in application code every time an entity is saved or updated, and keeps that bookkeeping logic centralized and consistent across every entity that opts into auditing.
+
+Specifications for Dynamic Queries
+
+For situations where the set of query conditions is not known until runtime, such as a search form with many optional filters, a repository can extend JpaSpecificationExecutor, which accepts a Specification object built up programmatically out of a Predicate, a CriteriaBuilder, and a CriteriaQuery. This approach lets application code compose complex, conditional WHERE clauses out of small, reusable, independently testable pieces, combining them with logical and and or operators at runtime, rather than trying to express every possible combination of filters as a single derived query method name or a single fixed JPQL string.
+
+Testing Repositories
+
+Spring Boot provides the @DataJpaTest annotation specifically for testing the JPA layer in isolation, which configures an in-memory embedded database by default, scans only for @Entity classes and Spring Data repositories rather than the entire application context, and wraps each test method in a transaction that is rolled back automatically once the test finishes. This keeps repository tests fast, since they avoid starting the full web layer, and keeps them independent of each other, since no test's data changes leak into the next test's run.
+
+
+Spring Boot: Externalized Configuration and Configuration Properties
+
+Source: https://docs.spring.io/spring-boot/reference/features/external-config.html
+
+Overview
+
+Spring Boot lets application configuration be externalized so the same compiled application can run correctly across different environments, whether local development, staging, or production. Configuration values can come from Java properties files, YAML files, environment variables, and command-line arguments, and Spring Boot merges all of these sources into a single unified Environment that application code can query.
+
+Ways to Access Configuration
+
+Spring Boot exposes configuration to application code in a few complementary ways. The @Value annotation injects an individual property directly into a field or constructor parameter. The Spring Environment abstraction offers programmatic, on-demand access to any property by key. The @ConfigurationProperties annotation offers type-safe binding of a whole group of related properties onto a plain Java object, which is generally the preferred approach once the number of related settings grows beyond one or two values.
+
+Property Source Precedence
+
+Spring Boot defines a specific precedence order across the many places configuration can come from, with later sources in the order overriding earlier ones. Roughly from lowest to highest priority, this includes default properties set programmatically, @PropertySource annotations on configuration classes, application.properties or application.yaml files, a special random value property source for random dot properties, operating system environment variables, Java system properties, JNDI attributes, servlet context and config init parameters, a SPRING_APPLICATION_JSON environment variable or system property, command-line arguments, and finally test-specific property sources used during @SpringBootTest execution. This layered precedence is what allows, for example, an environment variable to override a value baked into application.properties without changing the packaged application at all.
+
+Application Properties and Profiles
+
+Spring Boot automatically loads application.properties and application.yaml from the root of the classpath, a config package on the classpath, the current working directory, and a config subdirectory, among other conventional locations. The file name can be changed with spring.config.name, and additional or replacement locations can be specified with spring.config.location or spring.config.additional-location. Profile-specific files, named following the pattern application-{profile}.properties, are loaded in addition to the base file and override it on a per-key basis using a last-one-wins strategy, which is the standard mechanism for varying configuration across environments such as dev, test, and prod.
+
+Type-Safe Configuration with ConfigurationProperties
+
+Rather than scattering @Value annotations throughout a codebase, related settings can be grouped into a single class annotated with @ConfigurationProperties, specifying a common prefix such as my.service. Fields on that class, including nested objects, are bound automatically from the matching properties, so a YAML block with an enabled flag, a remote address, and a nested security object with a username, password, and list of roles maps directly onto corresponding fields and nested classes. Constructor binding is also supported, letting configuration properties classes be fully immutable, with values supplied through the constructor rather than through setters.
+
+Relaxed Binding and Placeholders
+
+Spring Boot uses relaxed rules when binding property names to Java fields, so dash-separated properties such as context-path bind correctly to a camelCase field named contextPath, all-caps environment variables bind to lowercase property names, and underscores are treated the same as dashes. Configuration files can also reference other properties using placeholder syntax such as dollar-sign brace notation, optionally supplying a default value after a colon if the referenced property is not otherwise set, which is a common technique for building one property out of another, such as combining an application name with a version string.
+
+Profile-Specific Beans and Activation
+
+Beyond profile-specific property files, entire Spring beans can be scoped to a profile using the @Profile annotation on a configuration class or bean method, so a DataSource bean configured for an embedded database might be active only under a dev profile, while a separate DataSource bean pointing at a real production database is active only under a prod profile. Active profiles are selected at startup through the spring.profiles.active property, which can itself be set through any of the standard configuration sources, including an environment variable or a command-line argument, making it easy to select the right profile for a given deployment without touching application code.
+
+YAML Versus Properties Format
+
+Spring Boot treats application.properties and application.yaml as equivalent underlying configuration once loaded into the Environment, but the two formats read very differently. The properties format uses flat, dot-separated keys such as server.port, while YAML expresses the same configuration as nested indented blocks, which many developers find easier to scan for deeply nested configuration structures, such as the nested security object commonly seen in @ConfigurationProperties examples. Because YAML uses significant whitespace, a single incorrect indentation level is a common source of configuration bugs, whereas the properties format, being flatter, tends to fail more visibly when a key is mistyped.
+
+Configuration Properties Validation
+
+A class annotated with @ConfigurationProperties can also be annotated with @Validated, and its individual fields annotated with Bean Validation constraints such as @NotNull, @Min, or @Max. When the application starts, Spring Boot validates the bound configuration object against these constraints and fails fast with a clear error message if a required property is missing or a numeric property falls outside its allowed range, which is far preferable to discovering a misconfiguration only once the application is already serving traffic and something downstream unexpectedly breaks.
+
+Common Application Properties
+
+Spring Boot ships with a large, well-documented set of common properties that control the behavior of the auto-configured parts of the framework, covering things like server.port, which changes the port the embedded web server listens on, logging.level prefixes, which adjust log verbosity per package, and spring.datasource properties, which configure the URL, username, and password used to connect to a relational database. Because these properties are exactly what an application's own @ConfigurationProperties classes are modeled after, understanding how the framework's own configuration works is a useful mental model for designing custom configuration in application-specific code.
+
+Environment-Specific Secrets
+
+Sensitive configuration values, such as database passwords or API keys, should generally not be committed to application.properties or application.yaml inside version control at all. The recommended pattern is to reference such values through environment variables or an external secret store, and to supply only a placeholder or a default suitable for local development directly in the checked-in configuration file. Because environment variables sit near the top of Spring Boot's property source precedence order, a value supplied that way at deploy time overrides any placeholder baked into the packaged application, letting the very same build artifact be deployed safely across environments with entirely different secrets.
+
+Configuration in Containerized Environments
+
+When a Spring Boot application runs inside a container, configuration is commonly supplied through environment variables set on the container itself, since this fits naturally with how container orchestration platforms already manage per-deployment configuration. For platforms that expose configuration through mounted files, such as Kubernetes ConfigMaps and Secrets, Spring Boot's configtree import mechanism can read an entire directory of small files directly into the Environment, treating each file's name as a property key and its content as the corresponding value, without requiring any additional glue code inside the application itself.
+
+Debugging Configuration Issues
+
+When a property does not seem to be taking effect, the actuator endpoint /actuator/env, if enabled, lists every property source Spring Boot is aware of along with its resolved value, which is invaluable for tracking down exactly which source is winning when several sources define the same key. Starting the application with the debug flag also prints a detailed auto-configuration report at startup, showing which auto-configuration classes were applied and which were skipped, along with the specific condition that caused each one to be included or excluded, which is often the fastest way to understand why a particular piece of automatic configuration is or is not taking effect.

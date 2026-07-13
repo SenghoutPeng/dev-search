@@ -1,0 +1,904 @@
+Declaring Models in GORM
+
+Source: https://gorm.io/docs/models.html
+
+Overview
+
+GORM streamlines database interactions by mapping Go structs to tables. Models are defined using normal structs. These structs can contain fields with basic Go types, pointers or aliases of these types, or even custom types, as long as they implement the Scanner and Valuer interfaces from the database/sql package.
+
+Basic Model Example
+
+A typical User model demonstrates key field types:
+
+```go
+type User struct {
+  ID           uint           // Standard field for the primary key
+  Name         string         // A regular string field
+  Email        *string        // A pointer to a string, allowing for null values
+  Age          uint8          // An unsigned 8-bit integer
+  Birthday     *time.Time     // A pointer to time.Time, can be null
+  MemberNumber sql.NullString // Uses sql.NullString to handle nullable strings
+  ActivatedAt  sql.NullTime   // Uses sql.NullTime for nullable time fields
+  CreatedAt    time.Time      // Automatically managed by GORM for creation time
+  UpdatedAt    time.Time      // Automatically managed by GORM for update time
+  ignored      string         // fields that aren't exported are ignored
+}
+```
+
+Core Conventions
+
+GORM follows four key conventions:
+
+1. Primary Key: ID field serves as the default
+2. Table Names: Struct names convert to snake_case and pluralize (User -> users)
+3. Column Names: Field names convert to snake_case automatically
+4. Timestamps: CreatedAt and UpdatedAt track record lifecycle
+
+gorm.Model
+
+GORM provides a predefined struct containing common fields. You can embed `gorm.Model` directly in your structs to include these fields automatically. This includes ID (primary key), CreatedAt, UpdatedAt, and DeletedAt (for soft deletes).
+
+```go
+type Model struct {
+  ID        uint `gorm:"primaryKey"`
+  CreatedAt time.Time
+  UpdatedAt time.Time
+  DeletedAt gorm.DeletedAt `gorm:"index"`
+}
+
+type User struct {
+  gorm.Model
+  Name string
+}
+```
+
+Advanced Features
+
+Field-Level Permissions
+
+Control read/write access using tags:
+- `<-:create`: Create-only
+- `<-:update`: Update-only
+- `->`: Read-only
+- `-`: Ignored completely
+
+```go
+type User struct {
+  Name string `gorm:"<-:create"`          // allow read and create
+  Name string `gorm:"<-"`                 // allow read and write (create and update)
+  Name string `gorm:"<-:update"`          // allow read and update
+  Name string `gorm:"<-:false"`           // allow read, disable write permission
+  Name string `gorm:"->"`                 // readonly (disable write permission unless it is initialized)
+  Name string `gorm:"->;<-:create"`       // allow read and create
+  Name string `gorm:"->:false;<-:create"` // createonly (disabled read from db)
+  Name string `gorm:"-"`                  // ignore this field when writing and reading
+  Name string `gorm:"-:all"`              // ignore this field when migrating, writing, reading
+  Name string `gorm:"-:migration"`        // ignore this field when migrating
+}
+```
+
+Timestamp Flexibility
+
+To use fields with a different name, you can configure those fields with tag `autoCreateTime`, `autoUpdateTime`. Support includes UNIX seconds, milliseconds, and nanoseconds for integer-based timestamps.
+
+```go
+type User struct {
+  CreatedAt time.Time // Set to current time if it is zero on creating
+  UpdatedAt int       // Set to current unix seconds on updating or if it is zero on creating
+  Updated   int64 `gorm:"autoUpdateTime:nano"` // Use unix nano seconds as updating time
+  Updated   int64 `gorm:"autoUpdateTime:milli"` // Use unix milli seconds as updating time
+  Created   int64 `gorm:"autoCreateTime"`      // Use unix seconds as creating time
+}
+```
+
+Embedded Structs
+
+Anonymous fields automatically merge into parent structs. Named structs require the `embedded` tag, optionally with `embeddedPrefix` for column naming.
+
+```go
+type Author struct {
+  Name  string
+  Email string
+}
+
+type Blog struct {
+  ID      int
+  Author  Author `gorm:"embedded"`
+  Upvotes int32
+}
+// equivalent to
+type Blog struct {
+  ID          int64
+  Name        string
+  Email       string
+  Upvotes     int32
+}
+```
+
+Using the `embeddedPrefix` tag option:
+
+```go
+type Blog struct {
+  ID      int
+  Author  Author `gorm:"embedded;embeddedPrefix:author_"`
+  Upvotes int32
+}
+// equivalent to
+type Blog struct {
+  ID          int64
+  AuthorName  string
+  AuthorEmail string
+  Upvotes     int32
+}
+```
+
+Field Tags
+
+Comprehensive tag support includes column, type, size, primaryKey, unique, default, precision, scale, index, autoCreateTime, autoUpdateTime, and more for precise column configuration.
+
+```go
+type User struct {
+  Name string `gorm:"column:name;type:varchar(100);unique;not null"`
+  Age  int    `gorm:"default:18"`
+}
+```
+
+Table Name Conventions
+
+GORM pluralizes and snake_cases a struct's name to derive its default table name — a User struct maps to a users table, and a CreditCard struct maps to a credit_cards table. This convention can be overridden per-model by implementing the Tabler interface:
+
+```go
+func (User) TableName() string {
+  return "profile"
+}
+```
+
+You can also disable pluralization globally at the point you open the database connection:
+
+```go
+db, err := gorm.Open(sqlite.Open("test.db"), &gorm.Config{
+  NamingStrategy: schema.NamingStrategy{
+    SingularTable: true,
+  },
+})
+```
+
+With SingularTable enabled, a User struct maps to a table literally named user instead of users.
+
+Composite Primary Keys
+
+GORM supports composite primary keys by tagging more than one field as primaryKey:
+
+```go
+type Product struct {
+  TenantID int `gorm:"primaryKey"`
+  SKU      string `gorm:"primaryKey"`
+  Name     string
+}
+```
+
+Here, no single field uniquely identifies a row on its own — the combination of TenantID and SKU together forms the primary key, which is common in multi-tenant schemas where the same SKU value can exist for different tenants.
+
+Custom Data Types with Scanner and Valuer
+
+Since model fields can be any type implementing the database/sql Scanner and Valuer interfaces, you're not limited to Go's built-in types. This is how libraries commonly support types like JSON columns or custom enum-like wrappers:
+
+```go
+type JSONMap map[string]interface{}
+
+func (m JSONMap) Value() (driver.Value, error) {
+  return json.Marshal(m)
+}
+
+func (m *JSONMap) Scan(value interface{}) error {
+  bytes, ok := value.([]byte)
+  if !ok {
+    return errors.New("type assertion to []byte failed")
+  }
+  return json.Unmarshal(bytes, m)
+}
+
+type Product struct {
+  ID       uint
+  Metadata JSONMap `gorm:"type:jsonb"`
+}
+```
+
+Value() controls how the type is serialized when writing to the database, and Scan() controls how a database value is deserialized back into the Go type when reading a row.
+
+Indexes
+
+Declaring an index is as simple as adding the index tag to a field; GORM creates it automatically during AutoMigrate:
+
+```go
+type User struct {
+  Name string `gorm:"index"`
+  Email string `gorm:"uniqueIndex"`
+}
+```
+
+Multiple fields can share a composite index by giving the index tag the same name:
+
+```go
+type User struct {
+  FirstName string `gorm:"index:idx_name"`
+  LastName  string `gorm:"index:idx_name"`
+}
+```
+</content>
+
+
+Creating Records in GORM
+
+Source: https://gorm.io/docs/create.html
+
+Basic Record Creation
+
+GORM supports two API styles. The traditional approach involves passing a pointer to your data structure:
+
+```go
+user := User{Name: "Jinzhu", Age: 18, Birthday: time.Now()}
+
+result := db.Create(&user) // pass pointer of data to Create
+
+user.ID             // returns inserted data's primary key
+result.Error        // returns error
+result.RowsAffected // returns inserted records count
+```
+
+Multiple Records and Batch Operations
+
+You can insert several records simultaneously by passing a slice:
+
+```go
+users := []*User{
+  {Name: "Jinzhu", Age: 18, Birthday: time.Now()},
+  {Name: "Jackson", Age: 19, Birthday: time.Now()},
+}
+
+result := db.Create(users) // pass a slice to insert multiple row
+
+result.Error        // returns error
+result.RowsAffected // returns inserted records count
+```
+
+For large datasets, use `CreateInBatches` to specify batch sizing, which helps prevent overwhelming database connections:
+
+```go
+var users = []User{{Name: "jinzhu_1"}, ..., {Name: "jinzhu_10000"}}
+
+// batch size 100
+db.CreateInBatches(users, 100)
+```
+
+Create Record With Associations
+
+When creating some data with associations, if its associations value is not zero-value, those associations will be upserted, and its `Hooks` methods will be called.
+
+```go
+type CreditCard struct {
+  gorm.Model
+  Number   string
+  UserID   uint
+}
+
+type User struct {
+  gorm.Model
+  Name       string
+  CreditCard CreditCard
+}
+
+db.Create(&User{
+  Name: "jinzhu",
+  CreditCard: CreditCard{Number: "411111111111"}
+})
+// INSERT INTO `credit_cards` ...
+// INSERT INTO `users` ...
+```
+
+You can skip saving associations with `Select` or `Omit`, for example:
+
+```go
+db.Omit("CreditCard").Create(&user)
+
+// skip all associations
+db.Omit(clause.Associations).Create(&user)
+```
+
+Create From Map
+
+GORM supports create from `map[string]interface{}` and `[]map[string]interface{}{}`, e.g:
+
+```go
+db.Model(&User{}).Create(map[string]interface{}{
+  "Name": "jinzhu", "Age": 18,
+})
+
+// batch insert from `[]map[string]interface{}{}`
+db.Model(&User{}).Create([]map[string]interface{}{
+  {"Name": "jinzhu_1", "Age": 18},
+  {"Name": "jinzhu_2", "Age": 20},
+})
+```
+
+Create From SQL Expression/Context Valuer
+
+GORM allows insert data with SQL expression, there are two ways to achieve this goal, create from `map[string]interface{}` or Customized Data Types.
+
+```go
+// Create from map
+db.Model(User{}).Create(map[string]interface{}{
+  "Name": "jinzhu",
+  "Location": clause.Expr{SQL: "ST_PointFromText(?)", Vars: []interface{}{"POINT(100 100)"}},
+})
+// INSERT INTO `users` (`name`,`location`) VALUES ("jinzhu",ST_PointFromText("POINT(100 100)"));
+```
+
+Advanced Options
+
+Select Fields when Creating
+
+```go
+db.Select("Name", "Age", "CreatedAt").Create(&user)
+// INSERT INTO `users` (`name`,`age`,`created_at`) VALUES ("jinzhu", 18, "2020-07-04 11:05:21.775")
+```
+
+Omit Fields when Creating
+
+```go
+db.Omit("Name", "Age", "CreatedAt").Create(&user)
+// INSERT INTO `users` (`birthday`,`updated_at`) VALUES ("2020-01-01 00:00:00.000", "2020-07-04 11:05:21.775")
+```
+
+Default Values
+
+You can define default values for fields with tag `default`:
+
+```go
+type User struct {
+  ID     int64
+  Name   string `gorm:"default:galeone"`
+  Age    int64  `gorm:"default:18"`
+}
+```
+
+Note: Any zero value like `0`, `''`, `false` won't be saved into the database for those fields defined having a default value, might want to use pointer type or Scanner/Valuer to avoid this.
+
+Upsert / On Conflict
+
+GORM provides compatibility support for different databases for Upsert support:
+
+```go
+import "gorm.io/gorm/clause"
+
+// Do nothing on conflict
+db.Clauses(clause.OnConflict{DoNothing: true}).Create(&user)
+
+// Update columns to default value on `id` conflict
+db.Clauses(clause.OnConflict{
+  Columns:   []clause.Column{{Name: "id"}},
+  DoUpdates: clause.Assignments(map[string]interface{}{"role": "user"}),
+}).Create(&users)
+// MERGE INTO "users" USING * WHEN NOT MATCHED THEN INSERT * WHEN MATCHED THEN UPDATE SET *; SQL Server
+// INSERT INTO `users` * ON DUPLICATE KEY UPDATE `role`="user"; MySQL
+
+// Update columns to new value on `id` conflict
+db.Clauses(clause.OnConflict{
+  Columns:   []clause.Column{{Name: "id"}},
+  DoUpdates: clause.AssignmentColumns([]string{"name", "age"}),
+}).Create(&users)
+// MERGE INTO "users" USING * WHEN NOT MATCHED THEN INSERT * WHEN MATCHED THEN UPDATE SET "name"="excluded"."name"; PostgreSQL
+// INSERT INTO `users` * ON DUPLICATE KEY UPDATE `name`=VALUES(name),`age`=VALUES(age); MySQL
+```
+
+Create Hooks
+
+GORM allows user defined hooks to be run before/after creating a record: `BeforeSave`, `BeforeCreate`, `AfterSave`, `AfterCreate`. These hook methods will be called when creating a record:
+
+```go
+func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
+  if u.Role == "admin" {
+    return errors.New("invalid role")
+  }
+  return
+}
+```
+
+Create With Default Values via SQL Expression
+
+Beyond the static default tag, GORM lets a field's default be computed by the database itself at insert time using an SQL expression as the default value, useful for things like auto-generated UUIDs or computed timestamps that should be evaluated by the database rather than by application code:
+
+```go
+type User struct {
+  ID   string `gorm:"default:(-)"` // skip default value hook, common with generated columns
+  UUID string `gorm:"type:uuid;default:gen_random_uuid()"`
+}
+```
+
+Returning Clause
+
+For databases that support it (PostgreSQL, SQL Server, SQLite), GORM's create can capture values generated by the database — such as a serial primary key or a computed column — directly from the INSERT statement's RETURNING clause, without a subsequent SELECT:
+
+```go
+users := []User{{Name: "jinzhu1"}, {Name: "jinzhu2"}}
+db.Clauses(clause.Returning{Columns: []clause.Column{{Name: "id"}}}).Create(&users)
+// users[0].ID and users[1].ID are now populated from the RETURNING clause
+```
+
+Create Ignoring Duplicate Errors
+
+Sometimes a batch insert should silently skip rows that would violate a unique constraint, rather than aborting the whole batch. Combine OnConflict{DoNothing: true} with a batch create for this:
+
+```go
+db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(users, 100)
+```
+
+Checking Result Metadata
+
+Every write operation in GORM returns a *gorm.DB result object exposing both an Error field and a RowsAffected count, which should be checked after every Create call in production code, since a nil error alongside zero RowsAffected can indicate a silently ignored conflict when DoNothing is set:
+
+```go
+result := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&user)
+if result.Error != nil {
+    // handle actual database error
+}
+if result.RowsAffected == 0 {
+    // the row already existed and was skipped, not necessarily an error condition
+}
+```</content>
+
+
+GORM Query Documentation
+
+Source: https://gorm.io/docs/query.html
+
+Retrieving Single Objects
+
+GORM offers `First`, `Take`, and `Last` methods to fetch individual records. These methods automatically add `LIMIT 1` to queries and return `ErrRecordNotFound` if no matching record exists.
+
+Traditional API
+```go
+db.First(&user)
+// SELECT * FROM users ORDER BY id LIMIT 1;
+
+db.Take(&user)
+// SELECT * FROM users LIMIT 1;
+
+db.Last(&user)
+// SELECT * FROM users ORDER BY id DESC LIMIT 1;
+
+result := db.First(&user)
+result.RowsAffected // returns count of records found
+result.Error        // returns error or nil
+
+errors.Is(result.Error, gorm.ErrRecordNotFound)
+```
+
+Note: To avoid `ErrRecordNotFound`, use `db.Limit(1).Find(&user)` instead. Using `Find` without a limit returns only the first object, which is non-deterministic and inefficient.
+
+Retrieving Objects with Primary Key
+
+```go
+db.First(&user, 10)
+// SELECT * FROM users WHERE id = 10;
+
+db.First(&user, "10")
+// SELECT * FROM users WHERE id = 10;
+
+db.Find(&users, []int{1,2,3})
+// SELECT * FROM users WHERE id IN (1,2,3);
+
+db.First(&user, "id = ?", "1b74413f-f3b8-409f-ac47-e8c062e3472a")
+// SELECT * FROM users WHERE id = "1b74413f-f3b8-409f-ac47-e8c062e3472a";
+```
+
+Retrieving All Objects
+
+```go
+result := db.Find(&users)
+// SELECT * FROM users;
+
+result.RowsAffected // returns found records count
+result.Error        // returns error
+```
+
+Query Conditions
+
+String Conditions
+```go
+// Get first matched record
+db.Where("name = ?", "jinzhu").First(&user)
+// SELECT * FROM users WHERE name = 'jinzhu' ORDER BY id LIMIT 1;
+
+// Get all matched records
+db.Where("name <> ?", "jinzhu").Find(&users)
+// SELECT * FROM users WHERE name <> 'jinzhu';
+
+// IN
+db.Where("name IN ?", []string{"jinzhu", "jinzhu 2"}).Find(&users)
+// SELECT * FROM users WHERE name IN ('jinzhu','jinzhu 2');
+
+// LIKE
+db.Where("name LIKE ?", "%jin%").Find(&users)
+// SELECT * FROM users WHERE name LIKE '%jin%';
+
+// AND
+db.Where("name = ? AND age >= ?", "jinzhu", "22").Find(&users)
+// SELECT * FROM users WHERE name = 'jinzhu' AND age >= 22;
+
+// Time
+db.Where("updated_at > ?", lastWeek).Find(&users)
+// SELECT * FROM users WHERE updated_at > '2000-01-01 00:00:00';
+
+// BETWEEN
+db.Where("created_at BETWEEN ? AND ?", lastWeek, today).Find(&users)
+// SELECT * FROM users WHERE created_at BETWEEN '2000-01-01 00:00:00' AND '2000-01-08 00:00:00';
+```
+
+Struct & Map Conditions
+```go
+// Struct
+db.Where(&User{Name: "jinzhu", Age: 20}).First(&user)
+// SELECT * FROM users WHERE name = "jinzhu" AND age = 20 ORDER BY id LIMIT 1;
+
+// Map
+db.Where(map[string]interface{}{"name": "jinzhu", "age": 20}).Find(&users)
+// SELECT * FROM users WHERE name = "jinzhu" AND age = 20;
+
+// Slice of primary keys
+db.Where([]int64{20, 21, 22}).Find(&users)
+// SELECT * FROM users WHERE id IN (20, 21, 22);
+```
+
+Important: When querying with structs, GORM ignores zero-valued fields. To include them, use maps:
+
+```go
+db.Where(&User{Name: "jinzhu", Age: 0}).Find(&users)
+// SELECT * FROM users WHERE name = "jinzhu";
+
+db.Where(map[string]interface{}{"Name": "jinzhu", "Age": 0}).Find(&users)
+// SELECT * FROM users WHERE name = "jinzhu" AND age = 0;
+```
+
+Inline Conditions
+```go
+// Get by primary key if it were a non-integer type
+db.First(&user, "id = ?", "string_primary_key")
+// SELECT * FROM users WHERE id = 'string_primary_key';
+
+// Plain SQL
+db.Find(&user, "name = ?", "jinzhu")
+// SELECT * FROM users WHERE name = "jinzhu";
+
+db.Find(&users, "name <> ? AND age > ?", "jinzhu", 20)
+// SELECT * FROM users WHERE name <> "jinzhu" AND age > 20;
+
+// Struct
+db.Find(&users, User{Age: 20})
+// SELECT * FROM users WHERE age = 20;
+
+// Map
+db.Find(&users, map[string]interface{}{"age": 20})
+// SELECT * FROM users WHERE age = 20;
+```
+
+Not Conditions
+```go
+db.Not("name = ?", "jinzhu").First(&user)
+// SELECT * FROM users WHERE NOT name = "jinzhu" ORDER BY id LIMIT 1;
+
+// Not In
+db.Not(map[string]interface{}{"name": []string{"jinzhu", "jinzhu 2"}}).Find(&users)
+// SELECT * FROM users WHERE name NOT IN ("jinzhu", "jinzhu 2");
+
+// Struct
+db.Not(User{Name: "jinzhu", Age: 18}).First(&user)
+// SELECT * FROM users WHERE name <> "jinzhu" AND age <> 18 ORDER BY id LIMIT 1;
+```
+
+Or Conditions
+```go
+db.Where("role = ?", "admin").Or("role = ?", "super_admin").Find(&users)
+// SELECT * FROM users WHERE role = 'admin' OR role = 'super_admin';
+
+// Struct
+db.Where("name = 'jinzhu'").Or(User{Name: "jinzhu 2", Age: 18}).Find(&users)
+// SELECT * FROM users WHERE name = 'jinzhu' OR (name = 'jinzhu 2' AND age = 18);
+```
+
+Selecting Specific Fields
+
+```go
+db.Select("name", "age").Find(&users)
+// SELECT name, age FROM users;
+
+db.Select([]string{"name", "age"}).Find(&users)
+// SELECT name, age FROM users;
+
+db.Table("users").Select("COALESCE(age,?)", 42).Rows()
+// SELECT COALESCE(age,'42') FROM users;
+```
+
+Order
+
+```go
+db.Order("age desc, name").Find(&users)
+// SELECT * FROM users ORDER BY age desc, name;
+
+// Multiple orders
+db.Order("age desc").Order("name").Find(&users)
+// SELECT * FROM users ORDER BY age desc, name;
+```
+
+Limit & Offset
+
+```go
+db.Limit(3).Find(&users)
+// SELECT * FROM users LIMIT 3;
+
+// Cancel limit condition with -1
+db.Limit(10).Find(&users1).Limit(-1).Find(&users2)
+// SELECT * FROM users LIMIT 10; (users1)
+// SELECT * FROM users; (users2)
+
+db.Offset(3).Find(&users)
+// SELECT * FROM users OFFSET 3;
+
+db.Limit(10).Offset(5).Find(&users)
+// SELECT * FROM users OFFSET 5 LIMIT 10;
+```
+
+Group By & Having
+
+```go
+type result struct {
+  Date  time.Time
+  Total int
+}
+
+db.Model(&User{}).Select("name, sum(age) as total").Where("name LIKE ?", "group%").Group("name").First(&result)
+// SELECT name, sum(age) as total FROM `users` WHERE name LIKE "group%" GROUP BY `name` LIMIT 1
+
+db.Model(&User{}).Select("name, sum(age) as total").Group("name").Having("name = ?", "group").Find(&result)
+// SELECT name, sum(age) as total FROM `users` GROUP BY `name` HAVING name = "group"
+```
+
+Distinct
+
+```go
+db.Distinct("name", "age").Order("name, age desc").Find(&results)
+```
+
+Joins
+
+```go
+type result struct {
+  Name  string
+  Email string
+}
+
+db.Model(&User{}).Select("users.name, emails.email").Joins("left join emails on emails.user_id = users.id").Scan(&result{})
+// SELECT users.name, emails.email FROM `users` left join emails on emails.user_id = users.id
+
+// multiple joins with parameter
+db.Joins("JOIN emails ON emails.user_id = users.id AND emails.email = ?", "jinzhu@example.org").Joins("JOIN credit_cards ON credit_cards.user_id = users.id").Where("credit_cards.number = ?", "411111111111").Find(&user)
+```
+
+Joins Preloading
+
+```go
+db.Joins("Company").Find(&users)
+// SELECT `users`.`id`,`users`.`name`,`users`.`age`,`Company`.`id` AS `Companyid`,`Company`.`name` AS `Companyname` FROM `users` LEFT JOIN `companies` AS `Company` ON `users`.`company_id` = `Company`.`id`;
+
+// inner join
+db.InnerJoins("Company").Find(&users)
+// SELECT `users`.`id`,`users`.`name`,`users`.`age`,`Company`.`id` AS `Companyid`,`Company`.`name` AS `Companyname` FROM `users` INNER JOIN `companies` AS `Company` ON `users`.`company_id` = `Company`.`id`;
+```
+
+Scan
+
+```go
+type Result struct {
+  Name string
+  Age  int
+}
+
+var result Result
+db.Table("users").Select("name", "age").Where("name = ?", "Antonio").Scan(&result)
+
+// Raw SQL
+db.Raw("SELECT name, age FROM users WHERE name = ?", "Antonio").Scan(&result)
+```
+
+Locking Rows for Update
+
+GORM supports pessimistic locking through the Clauses method, letting a SELECT statement lock the returned rows against concurrent modification until the enclosing transaction commits:
+
+```go
+db.Clauses(clause.Locking{Strength: "UPDATE"}).Find(&users)
+// SELECT * FROM `users` FOR UPDATE
+
+db.Clauses(clause.Locking{
+  Strength: "SHARE",
+  Table: clause.Table{Name: clause.CurrentTable},
+}).Find(&users)
+// SELECT * FROM `users` FOR SHARE OF `users`
+```
+
+This is typically used inside a db.Transaction callback, to safely read-then-update a row without a concurrent transaction changing it out from under you between the read and the write.
+
+Subqueries
+
+A *gorm.DB instance can be used as a subquery inside another query's conditions, letting you express fairly complex filters without dropping down to raw SQL:
+
+```go
+db.Where("amount > ?", db.Table("orders").Select("AVG(amount)")).Find(&orders)
+// SELECT * FROM "orders" WHERE amount > (SELECT AVG(amount) FROM "orders");
+```
+
+Subqueries also work inside FROM clauses via Table, letting you treat a derived query as if it were a regular table:
+
+```go
+db.Table("(?) as u", db.Model(&User{}).Select("name", "age")).Where("age = ?", 18).Find(&results)
+// SELECT * FROM (SELECT `name`,`age` FROM `users`) as u WHERE `age` = 18
+```
+
+Named Arguments
+
+GORM supports named arguments using sql.NamedArg or a map, which can make queries with many parameters considerably easier to read than a long list of positional placeholders:
+
+```go
+db.Where("name1 = @name OR name2 = @name", sql.Named("name", "jinzhu")).Find(&user)
+// SELECT * FROM `users` WHERE name1 = "jinzhu" OR name2 = "jinzhu"
+
+db.Where("name1 = @name OR name2 = @name", map[string]interface{}{"name": "jinzhu"}).First(&user)
+```
+
+FirstOrInit and FirstOrCreate
+
+Two convenience methods combine a query with a fallback: FirstOrInit fetches the first matching record or, if none exists, initializes a new struct (without saving it) populated with the given conditions. FirstOrCreate does the same but immediately persists the new record to the database if none was found:
+
+```go
+// FirstOrInit: get an existing record, or initialize one in memory only
+var user User
+db.FirstOrInit(&user, User{Name: "non_existing"})
+
+// FirstOrCreate: get an existing record, or create and save a new one
+db.FirstOrCreate(&user, User{Name: "non_existing"})
+
+// Attrs are only used when creating a new record, ignored if a match is found
+db.Where(User{Name: "non_existing"}).Attrs(User{Age: 20}).FirstOrCreate(&user)
+
+// Assign always applies these attributes and saves, whether the record was found or newly created
+db.Where(User{Name: "non_existing"}).Assign(User{Age: 20}).FirstOrCreate(&user)
+```
+
+Count
+
+To retrieve the number of matching rows without fetching them into memory, use Count on a *gorm.DB configured with the desired conditions:
+
+```go
+var count int64
+db.Model(&User{}).Where("name = ?", "jinzhu").Count(&count)
+// SELECT count(*) FROM users WHERE name = "jinzhu"
+```</content>
+
+
+GORM: Updating Records
+
+Save All Fields
+
+The Save method persists all fields during updates:
+
+db.First(&user)
+user.Name = "jinzhu 2"
+user.Age = 100
+db.Save(&user)
+// UPDATE users SET name='jinzhu 2', age=100, birthday='2016-01-01', updated_at = '2013-11-17 21:34:10' WHERE id=111;
+
+Save functions as an upsert operation — it inserts records lacking primary keys and updates those with existing keys.
+
+Update a Single Column
+
+Updating individual columns requires conditions, or GORM raises an error.
+
+db.Model(&User{}).Where("active = ?", true).Update("name", "hello")
+db.Model(&user).Update("name", "hello")
+// UPDATE users SET name='hello', updated_at='2013-11-17 21:34:10' WHERE id=111;
+
+Update Multiple Columns
+
+The Updates method handles struct or map-based updates, skipping zero-valued fields in struct mode by default.
+
+db.Model(&user).Updates(User{Name: "hello", Age: 18})
+db.Model(&user).Updates(map[string]interface{}{"name": "hello", "age": 18, "active": false})
+
+Update Selected Fields
+
+Control which fields to update using Select or Omit.
+
+db.Model(&user).Select("name").Updates(map[string]interface{}{"name": "hello", "age": 18})
+db.Model(&user).Omit("name").Updates(map[string]interface{}{"name": "hello", "age": 18})
+
+Update Hooks
+
+GORM supports BeforeSave, BeforeUpdate, AfterSave, and AfterUpdate hooks:
+
+func (u *User) BeforeUpdate(tx *gorm.DB) (err error) {
+  if u.Role == "admin" {
+    return errors.New("admin user not allowed to update")
+  }
+  return
+}
+
+Batch Updates
+
+Updates without a model's primary key perform batch operations:
+
+db.Model(User{}).Where("role = ?", "admin").Updates(User{Name: "hello", Age: 18})
+db.Table("users").Where("id IN ?", []int{10, 11}).Updates(map[string]interface{}{"name": "hello"})
+
+Block Global Updates
+
+GORM prevents accidental global updates by requiring conditions:
+
+db.Model(&User{}).Update("name", "jinzhu").Error // returns ErrMissingWhereClause
+db.Model(&User{}).Where("1 = 1").Update("name", "jinzhu") // succeeds with condition
+db.Session(&gorm.Session{AllowGlobalUpdate: true}).Model(&User{}).Update("name", "jinzhu") // explicitly allowed
+
+Advanced Features
+
+SQL Expressions — update columns using SQL expressions:
+
+db.Model(&product).Update("price", gorm.Expr("price * ? + ?", 2, 100))
+// UPDATE "products" SET "price" = price * 2 + 100, "updated_at" = '2013-11-17 21:34:10' WHERE "id" = 3;
+
+Update from SubQuery:
+
+db.Model(&user).Update("company_name", db.Model(&Company{}).Select("name").Where("companies.id = users.company_id"))
+
+Without Hooks/Time Tracking — skip hooks and timestamp updates:
+
+db.Model(&user).UpdateColumn("name", "hello")
+db.Model(&user).UpdateColumns(User{Name: "hello", Age: 18})
+
+Check Field Changes — detect modified fields in hooks:
+
+func (u *User) BeforeUpdate(tx *gorm.DB) (err error) {
+  if tx.Statement.Changed("Role") {
+    return errors.New("role not allowed to change")
+  }
+  if tx.Statement.Changed() { // any field changed
+    tx.Statement.SetColumn("RefreshedAt", time.Now())
+  }
+  return nil
+}
+
+Returning Data After Update
+
+For databases that support the RETURNING clause (PostgreSQL, SQL Server, SQLite), GORM can return updated column values directly from the UPDATE statement instead of requiring a separate SELECT to refetch the row:
+
+var users []User
+db.Model(&users).Clauses(clause.Returning{}).Where("role = ?", "admin").Update("salary", gorm.Expr("salary * ?", 2))
+
+Update with Struct vs Map: Zero Values
+
+A frequent source of confusion is that Updates with a struct argument silently skips any zero-valued fields (empty string, 0, false), since GORM cannot distinguish "explicitly set to zero" from "never set at all" on a plain Go struct. If you genuinely need to set a field to its zero value, use a map instead, since maps have no such ambiguity:
+
+// Age won't be updated since 0 is Age's zero value
+db.Model(&user).Updates(User{Name: "hello", Age: 0})
+
+// Age WILL be updated to 0
+db.Model(&user).Updates(map[string]interface{}{"name": "hello", "age": 0})
+
+Optimistic Locking
+
+GORM supports optimistic locking through a plugin, allowing concurrent updates to the same row to be detected and rejected rather than silently overwriting each other. The pattern typically involves a version column that's checked and incremented atomically as part of the UPDATE's WHERE clause, so a stale update (based on an outdated version number) affects zero rows rather than corrupting data from a more recent update that already happened.
+
+Updating Associations
+
+Calling Save or Updates on a model that has associations only updates the model's own fields by default; associations are left untouched unless you explicitly use Association Mode or FullSaveAssociations:
+
+db.Session(&gorm.Session{FullSaveAssociations: true}).Updates(&user)
+
+FullSaveAssociations tells GORM to also upsert any populated association fields on the struct, which is useful when you're updating a User and its nested CreditCard data in a single call, but should be used deliberately since it changes the blast radius of a single Updates call considerably.

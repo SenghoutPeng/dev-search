@@ -1,0 +1,3 @@
+What is GORM?
+
+GORM is an Object-Relational Mapping (ORM) library for the Go programming language. It lets you define database tables as ordinary Go structs (using struct tags to specify column names, primary keys, and constraints) and then interact with the database using Go method calls instead of writing raw SQL by hand. GORM supports associations (has-one, has-many, belongs-to, many-to-many), automatic migrations, hooks that run before or after database operations, transactions, and a chainable query builder. Because Go itself has no built-in ORM, GORM is the most widely used database library in the Go ecosystem for applications that want an ORM-style workflow rather than working directly with SQL driver calls.

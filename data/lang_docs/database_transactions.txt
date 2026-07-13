@@ -1,0 +1,331 @@
+Database Transactions - ACID Properties and Concurrency Control
+
+Introduction
+
+A database transaction is a sequence of operations treated as a single, indivisible unit of work. Either all operations succeed and changes are permanently saved, or all operations are rolled back as if nothing happened. Transactions are the foundation of reliable data management in applications.
+
+The ACID Properties
+
+Transactions must satisfy four essential characteristics known as ACID:
+
+Atomicity: All or nothing. Transaction either completely succeeds or completely fails.
+
+If you transfer $100 from account A to account B:
+- Debit $100 from account A
+- Credit $100 to account B
+
+Both must succeed. If anything fails, both are rolled back. The system never enters an inconsistent state where money is lost or duplicated.
+
+Consistency: Transaction takes database from one valid state to another valid state.
+
+If a constraint says "total_quantity must equal sum of individual quantities," that must remain true before and after the transaction.
+
+Invalid state (violated constraint) never persists.
+
+Isolation: Concurrent transactions don't interfere with each other.
+
+If two users simultaneously transfer money from the same account, the operations must not conflict. Results must be the same as if they happened sequentially.
+
+Durability: Changes are permanently saved.
+
+Once a transaction commits, data survives server crashes, power failures, or other disasters. Data is written to persistent storage.
+
+Transaction Control
+
+Transaction statements control transaction boundaries:
+
+BEGIN (or START TRANSACTION): Mark start of transaction
+
+```sql
+BEGIN;
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+COMMIT;
+```
+
+All statements between BEGIN and COMMIT are one transaction.
+
+COMMIT: Finalize changes and make them permanent
+
+```sql
+BEGIN;
+INSERT INTO orders (user_id, total) VALUES (123, 99.99);
+COMMIT;  -- Order is now in database permanently
+```
+
+ROLLBACK: Undo all changes since BEGIN
+
+```sql
+BEGIN;
+UPDATE users SET email = 'new@example.com' WHERE id = 1;
+DELETE FROM sessions WHERE user_id = 1;
+ROLLBACK;  -- Both operations are undone
+```
+
+SAVEPOINT: Create a checkpoint within transaction for partial rollback
+
+```sql
+BEGIN;
+INSERT INTO orders (user_id, total) VALUES (123, 99.99);
+SAVEPOINT after_order;
+
+INSERT INTO order_items (...) VALUES (...);
+INSERT INTO order_items (...) VALUES (...);
+
+-- Error with items, roll back to savepoint
+ROLLBACK TO after_order;
+
+-- Order still exists, items removed
+COMMIT;
+```
+
+Isolation Levels
+
+Isolation determines how much one transaction sees changes from another uncommitted transaction.
+
+READ UNCOMMITTED: Lowest isolation level.
+
+- Sees changes from other uncommitted transactions (dirty reads)
+- Fast, but risky
+- Rarely used due to data corruption risk
+
+```
+Transaction A: UPDATE account SET balance = 100
+Transaction B: SELECT balance FROM account (might see 100 even if A rolls back)
+```
+
+READ COMMITTED: Standard isolation level.
+
+- Sees only committed changes from other transactions
+- Can see changes by transactions that commit during execution (non-repeatable read)
+- Prevents dirty reads, standard for most applications
+
+```
+Transaction A: SELECT balance FROM account (sees 100)
+Transaction B: UPDATE balance TO 200, COMMIT
+Transaction A: SELECT balance FROM account (sees 200)
+```
+
+REPEATABLE READ: Higher isolation level.
+
+- Consistent snapshot for duration of transaction
+- Cannot see changes from other transactions
+- Can see new rows inserted by other transactions (phantom reads)
+- Prevents dirty reads and non-repeatable reads
+
+```
+Transaction A: SELECT * FROM users WHERE age > 18 (sees 100 rows)
+Transaction B: INSERT new user with age 25, COMMIT
+Transaction A: SELECT * FROM users WHERE age > 18 (still sees 100 rows)
+```
+
+SERIALIZABLE: Highest isolation level.
+
+- Complete isolation as if transactions run sequentially
+- Prevents all anomalies (dirty reads, non-repeatable reads, phantom reads)
+- Slowest due to locking
+
+Higher isolation provides more safety but at cost of concurrency and performance. Most applications use READ COMMITTED.
+
+Concurrency Issues
+
+Race Condition: Two operations on same data happen simultaneously.
+
+```
+Account has $100
+
+Transaction A: Read balance (100), add 50, write (150)
+Transaction B: Read balance (100), add 25, write (125)
+
+Result: Transaction B's update overwrites A's, account has $125 instead of $175
+```
+
+Dirty Read: Reading uncommitted changes that might be rolled back.
+
+```
+Transaction A: UPDATE balance = 0 (account bankrupted temporarily)
+Transaction B: SELECT balance (sees 0, might make decisions based on it)
+Transaction A: ROLLBACK
+Transaction B: Balance is actually not 0 (dirty read)
+```
+
+Non-Repeatable Read: Query returns different results within same transaction.
+
+```
+Transaction A: SELECT total FROM order (sees $100)
+Transaction B: UPDATE order SET total = 200, COMMIT
+Transaction A: SELECT total FROM order (sees $200, changed!)
+```
+
+Phantom Read: New rows appear within a transaction.
+
+```
+Transaction A: SELECT COUNT(*) FROM users WHERE role = 'admin' (sees 5)
+Transaction B: INSERT user with role = 'admin', COMMIT
+Transaction A: SELECT COUNT(*) FROM users WHERE role = 'admin' (sees 6, phantom row)
+```
+
+Lost Update: One transaction's changes overwritten by another.
+
+```
+Account balance: 100
+
+Transaction A: balance = balance + 50 = 150
+Transaction B: balance = balance - 25 = 75
+
+If B executes after A without proper locking:
+Result: 75 (A's +50 is lost)
+```
+
+Deadlocks
+
+Deadlock occurs when two transactions wait for each other:
+
+```
+Transaction A holds lock on Table 1, wants lock on Table 2
+Transaction B holds lock on Table 2, wants lock on Table 1
+
+Both transactions wait forever (deadlock)
+```
+
+Example deadlock:
+
+```sql
+-- Transaction A
+BEGIN;
+UPDATE users SET balance = balance - 100 WHERE id = 1;
+UPDATE accounts SET total = total - 100 WHERE id = 999;
+COMMIT;
+
+-- Transaction B (simultaneous)
+BEGIN;
+UPDATE accounts SET total = total + 100 WHERE id = 999;
+UPDATE users SET balance = balance + 100 WHERE id = 1;
+COMMIT;
+
+-- Result: Both transactions deadlock waiting for each other
+```
+
+Deadlock prevention:
+- Order database operations consistently (always update users before accounts)
+- Use shorter transactions
+- Use appropriate isolation levels
+- Database automatically detects and breaks deadlocks (rolls back one transaction)
+
+Transaction Examples
+
+Money Transfer (requires atomicity):
+
+```sql
+BEGIN;
+UPDATE accounts SET balance = balance - 100 WHERE id = 'checking';
+UPDATE accounts SET balance = balance + 100 WHERE id = 'savings';
+COMMIT;
+
+-- If anything fails between UPDATE statements, both are rolled back
+-- Money is never lost or duplicated
+```
+
+Order Processing (complex transaction):
+
+```sql
+BEGIN;
+  -- Create order
+  INSERT INTO orders (user_id, total, status)
+  VALUES (123, 99.99, 'pending')
+  RETURNING id INTO order_id;
+
+  -- Reserve inventory
+  UPDATE products SET stock = stock - qty WHERE id = product_id AND stock >= qty;
+  IF NOT FOUND THEN
+    ROLLBACK;  -- Out of stock, abort
+    RAISE EXCEPTION 'Out of stock';
+  END IF;
+
+  -- Charge payment (might call external service)
+  CALL charge_payment(123, 99.99);
+
+  -- Create shipment
+  INSERT INTO shipments (order_id, status) VALUES (order_id, 'pending');
+
+  -- Commit everything together
+COMMIT;
+```
+
+Session or Connection Level Transactions
+
+Each database connection can have an active transaction. Multiple transactions can run concurrently.
+
+```python
+# Python with SQLAlchemy
+with engine.begin() as conn:
+  conn.execute("UPDATE users SET status = 'active' WHERE id = 1")
+  # Commits automatically on successful exit
+  # Rolls back on exception
+```
+
+Go with database/sql:
+
+```go
+tx, err := db.Begin()
+if err != nil {
+  return err
+}
+defer tx.Rollback()  // Rollback if commit doesn't happen
+
+_, err = tx.Exec("UPDATE users SET status = 'active' WHERE id = 1")
+if err != nil {
+  return err
+}
+
+return tx.Commit().Error
+```
+
+Laravel:
+
+```php
+DB::transaction(function () {
+  User::where('id', 1)->update(['status' => 'active']);
+  Post::create(['user_id' => 1, 'title' => 'My post']);
+  // All-or-nothing
+});
+```
+
+Spring Boot with JPA:
+
+```java
+@Transactional
+public void transferMoney(Long fromId, Long toId, BigDecimal amount) {
+  Account from = accountRepository.findById(fromId).get();
+  Account to = accountRepository.findById(toId).get();
+
+  from.setBalance(from.getBalance().subtract(amount));
+  to.setBalance(to.getBalance().add(amount));
+
+  // Saves happen on commit
+}
+```
+
+Transaction Best Practices
+
+Keep transactions short: Long transactions block other operations and increase deadlock risk.
+
+Order operations consistently: Always acquire locks in same order to prevent deadlocks.
+
+Handle rollbacks gracefully: Catch transaction failures and retry when appropriate.
+
+Use appropriate isolation level: READ COMMITTED for most applications, higher only if needed.
+
+Validate before transaction: Validate data before starting expensive transaction.
+
+Avoid nested transactions: Use savepoints for partial rollback instead.
+
+Log errors: Log transaction failures with context for debugging.
+
+Test edge cases: Test what happens when transaction fails mid-way.
+
+Monitor transactions: Track long-running transactions that might cause issues.
+
+Use connection pooling: Reuse connections across transactions efficiently.
+
+Transactions are fundamental to data integrity. Understanding ACID properties, isolation levels, and concurrency control is essential for building reliable applications.

@@ -1,0 +1,300 @@
+GORM: Model Hooks
+
+Source: https://gorm.io/docs/hooks.html
+
+Overview
+
+GORM lets model structs implement hook methods that run automatically before or after a create, update, delete, or query operation. As the documentation puts it, "Hooks are functions that are called before or after creation/querying/updating/deletion." Each hook method must follow the signature func(*gorm.DB) error, taking the current transaction handle and returning an error.
+
+Creating Objects — Hook Sequence
+
+When you call Create, GORM runs hooks in this order, all wrapped inside a single transaction:
+
+BeforeSave -> BeforeCreate -> (insert into database) -> AfterCreate -> AfterSave
+
+func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
+  if u.Role == "admin" {
+    return errors.New("invalid role")
+  }
+  return
+}
+
+func (u *User) AfterCreate(tx *gorm.DB) (err error) {
+  if u.ID == 1 {
+    tx.Model(u).Update("role", "admin")
+  }
+  return
+}
+
+Updating Objects — Hook Sequence
+
+Updates follow a parallel sequence:
+
+BeforeSave -> BeforeUpdate -> (update database) -> AfterUpdate -> AfterSave
+
+func (u *User) BeforeUpdate(tx *gorm.DB) (err error) {
+  if tx.Statement.Changed("Role") {
+    return errors.New("role not allowed to change")
+  }
+  return
+}
+
+Deleting Objects — Hook Sequence
+
+Deletion uses its own pair of hooks:
+
+BeforeDelete -> (delete from database) -> AfterDelete
+
+func (u *User) BeforeDelete(tx *gorm.DB) (err error) {
+  if u.Role == "admin" {
+    return errors.New("admin user not allowed to delete")
+  }
+  return
+}
+
+Querying Objects — AfterFind
+
+Queries support a single hook, AfterFind, which executes after the record has been loaded from the database and after any preloaded associations have finished loading:
+
+func (u *User) AfterFind(tx *gorm.DB) (err error) {
+  if u.MemberNumber == "" {
+    u.MemberNumber = "unknown"
+  }
+  return
+}
+
+This is a common place to normalize or default fields that were loaded as zero values, without needing to repeat that normalization logic at every call site that queries the model.
+
+Error Handling and Rollback
+
+The documentation is explicit on this point: "if any callback returns an error, GORM will stop future operations and rollback current transaction." Practically, this means returning a non-nil error from any hook — BeforeCreate, BeforeUpdate, BeforeDelete, and so on — immediately halts the write and rolls back everything done so far in that transaction, including changes made by earlier hooks in the same operation.
+
+Hooks Run Inside a Transaction
+
+All save and delete operations run transactionally by default, so any changes made by a hook remain invisible to other connections until the whole operation commits. The tx parameter passed into each hook operates in "new session mode," which means queries issued through tx inside a hook execute independently of the outer statement while still participating in the same enclosing transaction — so a hook can safely run its own SELECT or UPDATE against tx without those queries escaping the transaction boundary.
+
+Modifying the Current Operation from Within a Hook
+
+Hooks can reach into tx.Statement to influence the operation that's about to run, for example selecting only specific columns or adding extra SQL clauses before the database interaction happens:
+
+func (u *User) BeforeCreate(tx *gorm.DB) (err error) {
+  tx.Statement.SetColumn("UUID", uuid.New())
+  return
+}
+
+This is a common pattern for auto-populating fields like UUIDs, slugs, or audit timestamps at the moment of creation, without requiring every caller to remember to set them manually before calling Create.
+
+
+GORM: Soft Delete and Scopes
+
+Source: https://gorm.io/docs/delete.html and https://gorm.io/docs/scopes.html
+
+Deleting Records
+
+GORM's Delete method removes a record matching the given conditions, but requires either a primary key on the passed struct or an explicit condition, to guard against accidentally deleting every row in a table:
+
+db.Delete(&User{}, 10)
+// DELETE FROM users WHERE id = 10;
+
+db.Delete(&user)
+// DELETE FROM users WHERE id = 10; (using user.ID)
+
+db.Where("name = ?", "jinzhu").Delete(&User{})
+// DELETE FROM users WHERE name = 'jinzhu';
+
+Batch Delete
+
+Deleting without specifying a primary key value performs a batch delete across every row matching the given condition:
+
+db.Where("age = ?", 20).Delete(&User{})
+// DELETE FROM users WHERE age = 20;
+
+Block Global Delete
+
+Just as with global updates, GORM blocks a Delete call with no conditions at all, to prevent accidentally deleting an entire table:
+
+db.Delete(&User{}).Error // returns ErrMissingWhereClause
+
+db.Where("1 = 1").Delete(&User{}) // succeeds, with an explicit always-true condition
+
+Soft Delete
+
+If your model includes a gorm.DeletedAt field (which gorm.Model already embeds), calling Delete does not actually remove the row from the database — it sets the DeletedAt column to the current time instead:
+
+type User struct {
+  gorm.Model
+  Name string
+}
+
+db.Delete(&user)
+// UPDATE users SET deleted_at="2013-10-29 10:23" WHERE id = 1;
+
+Once a record is soft deleted, ordinary queries automatically exclude it, as if a WHERE deleted_at IS NULL clause were silently appended to every query against that model:
+
+db.Where("age = 20").Find(&users)
+// SELECT * FROM users WHERE age = 20 AND deleted_at IS NULL;
+
+Finding Soft Deleted Records
+
+To include soft-deleted records in a query result, chain Unscoped:
+
+db.Unscoped().Where("age = 20").Find(&users)
+// SELECT * FROM users WHERE age = 20;
+
+Permanently Deleting Records
+
+Unscoped also applies to Delete itself, causing a genuine hard delete that bypasses the soft-delete mechanism entirely:
+
+db.Unscoped().Delete(&order)
+// DELETE FROM orders WHERE id=10;
+
+Scopes
+
+Scopes let you extract commonly reused query logic into reusable functions, avoiding repeating the same chain of Where/Order/Limit calls across many different queries throughout a codebase:
+
+func AmountGreaterThan1000(db *gorm.DB) *gorm.DB {
+  return db.Where("amount > ?", 1000)
+}
+
+func PaidWithCreditCard(db *gorm.DB) *gorm.DB {
+  return db.Where("pay_mode_sign = ?", "C")
+}
+
+func OrderStatus(status []string) func(db *gorm.DB) *gorm.DB {
+  return func(db *gorm.DB) *gorm.DB {
+    return db.Where("status IN (?)", status)
+  }
+}
+
+Apply one or more scopes with the Scopes method, chaining several together in a single query just like ordinary query builder methods:
+
+db.Scopes(AmountGreaterThan1000, PaidWithCreditCard).Find(&orders)
+
+db.Scopes(AmountGreaterThan1000, OrderStatus([]string{"paid", "shipped"})).Find(&orders)
+
+Scopes accepting parameters, like OrderStatus above, are written as a function that itself returns a scope function, letting the parameter be captured in a closure while still conforming to the func(*gorm.DB) *gorm.DB signature Scopes expects.
+
+Global Query Scopes with a Custom Type
+
+Beyond ad-hoc reusable scopes, a common pattern wraps *gorm.DB in a small helper type exposing a fluent, domain-specific query API for a particular model, layering readable business-level method names on top of GORM's generic query builder:
+
+type UserQuery struct {
+  db *gorm.DB
+}
+
+func NewUserQuery(db *gorm.DB) *UserQuery {
+  return &UserQuery{db: db.Model(&User{})}
+}
+
+func (q *UserQuery) Active() *UserQuery {
+  q.db = q.db.Where("active = ?", true)
+  return q
+}
+
+func (q *UserQuery) OlderThan(age int) *UserQuery {
+  q.db = q.db.Where("age > ?", age)
+  return q
+}
+
+func (q *UserQuery) Find() ([]User, error) {
+  var users []User
+  err := q.db.Find(&users).Error
+  return users, err
+}
+
+// usage: NewUserQuery(db).Active().OlderThan(21).Find()
+
+This pattern is entirely a convention built on top of GORM's public API rather than a built-in GORM feature, but it's widely used in larger codebases to keep repeated query logic both readable and centrally testable.
+
+
+GORM: Raw SQL and SQL Builder
+
+Source: https://gorm.io/docs/sql_builder.html
+
+Raw SQL Queries
+
+GORM lets you drop down to raw SQL when the query builder's abstraction doesn't fit a particular case, while still integrating with GORM's scanning and connection pooling:
+
+var users []User
+db.Raw("SELECT id, name, age FROM users WHERE name = ?", "jinzhu").Scan(&users)
+
+var count int64
+db.Raw("SELECT COUNT(*) FROM users WHERE name = ?", "jinzhu").Scan(&count)
+
+Executing Raw SQL Without Scanning Results
+
+For statements that don't return rows to scan, such as an UPDATE or DELETE expressed as raw SQL, use Exec instead of Raw().Scan():
+
+db.Exec("UPDATE users SET name = ? WHERE id = ?", "jinzhu", 1)
+db.Exec("DROP TABLE users")
+
+Named Arguments in Raw SQL
+
+Just as with the query builder, raw SQL supports named arguments, which can make a long raw query considerably more readable than a wall of positional question marks:
+
+db.Raw("SELECT * FROM users WHERE name1 = @name OR name2 = @name", sql.Named("name", "jinzhu")).Find(&user)
+
+DryRun Mode
+
+Before executing a query, DryRun mode generates the SQL and its arguments without actually running it against the database, which is useful for debugging exactly what SQL a chain of query builder calls will produce:
+
+stmt := db.Session(&gorm.Session{DryRun: true}).First(&user, 1).Statement
+fmt.Println(stmt.SQL.String())
+fmt.Println(stmt.Vars)
+
+Row and Rows for Manual Scanning
+
+When you need direct access to *sql.Row or *sql.Rows, bypassing GORM's own struct scanning entirely, Row and Rows expose the underlying database/sql primitives:
+
+row := db.Table("users").Where("name = ?", "jinzhu").Select("name", "age").Row()
+row.Scan(&name, &age)
+
+rows, err := db.Model(&User{}).Where("name = ?", "jinzhu").Rows()
+defer rows.Close()
+for rows.Next() {
+  rows.Scan(&name, &age)
+}
+
+Scanning Raw Rows Back into GORM Models
+
+ScanRows lets you take a raw *sql.Rows result (perhaps obtained from a separate, non-GORM code path) and scan it into GORM model structs, reusing GORM's own struct-mapping logic:
+
+rows, err := db.Model(&User{}).Where("name = ?", "jinzhu").Rows()
+defer rows.Close()
+
+for rows.Next() {
+  var user User
+  db.ScanRows(rows, &user)
+  // do something with user
+}
+
+Connection Pool Configuration
+
+Because GORM wraps Go's standard database/sql package, the underlying connection pool is configured through the same *sql.DB handle, accessible via DB():
+
+sqlDB, err := db.DB()
+
+sqlDB.SetMaxIdleConns(10)
+sqlDB.SetMaxOpenConns(100)
+sqlDB.SetConnMaxLifetime(time.Hour)
+
+SetMaxOpenConns caps the total number of open connections to the database, SetMaxIdleConns controls how many idle connections are kept ready for reuse rather than closed, and SetConnMaxLifetime forces connections to be recycled periodically, which helps in environments where a load balancer or proxy in front of the database might silently drop long-lived connections after some time.
+
+Logging
+
+GORM's default logger prints SQL statements and their execution time to the console, which is useful during development but usually needs tuning for production. You can configure the log level and a slow-query threshold when opening the connection:
+
+newLogger := logger.New(
+  log.New(os.Stdout, "\r\n", log.LstdFlags),
+  logger.Config{
+    SlowThreshold: time.Second,
+    LogLevel:      logger.Warn,
+    Colorful:      true,
+  },
+)
+
+db, err := gorm.Open(sqlite.Open("test.db"), &gorm.Config{
+  Logger: newLogger,
+})
+
+Setting LogLevel to logger.Silent disables SQL logging entirely, while logger.Info logs every single query — most production deployments settle on logger.Warn combined with a SlowThreshold, so only genuinely slow queries get logged rather than flooding logs with every routine query.

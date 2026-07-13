@@ -1,0 +1,424 @@
+Gin: JSON Binding and Validation
+
+Source: https://gin-gonic.com/en/docs/examples/binding-and-validation/
+
+Overview
+
+Gin can automatically bind incoming request data into a Go struct and validate it, using the go-playground/validator package under the hood. Validation rules are expressed as struct tags on the target type, so binding and validation happen in a single call rather than as two separate steps.
+
+Defining a Struct with Binding Tags
+
+type Login struct {
+    User     string `form:"user" json:"user" binding:"required"`
+    Password string `form:"password" json:"password" binding:"required"`
+}
+
+The binding:"required" tag marks a field as mandatory; if it's missing or holds a zero value, binding fails with a validation error before your handler logic even runs.
+
+Binding JSON with ShouldBindJSON
+
+func main() {
+    router := gin.Default()
+
+    router.POST("/loginJSON", func(c *gin.Context) {
+        var json Login
+        if err := c.ShouldBindJSON(&json); err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+            return
+        }
+
+        if json.User != "manu" || json.Password != "123" {
+            c.JSON(http.StatusUnauthorized, gin.H{"status": "unauthorized"})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{"status": "you are logged in"})
+    })
+
+    router.Run(":8080")
+}
+
+ShouldBindJSON reads the request body, decodes it as JSON into the target struct, and runs validation according to the binding tags. If decoding or validation fails, it returns an error that you can surface back to the client, typically with a 400 Bad Request status.
+
+Binding Form Data
+
+The same struct with form tags can also bind traditional form-encoded POST data using ShouldBind, which inspects the Content-Type header and dispatches to the appropriate binding engine (form, JSON, XML, and so on) automatically:
+
+router.POST("/loginForm", func(c *gin.Context) {
+    var form Login
+    if err := c.ShouldBind(&form); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+    // Validate form.User and form.Password
+})
+
+Common Validator Tags
+
+Beyond required, the underlying validator package supports a large set of tags that can be combined on a single field:
+
+- required — the field must be present and non-zero
+- email — the field must be a syntactically valid email address
+- min=N / max=N — numeric bounds or string/slice length bounds
+- len=N — an exact length requirement
+- oneof=a b c — the value must be one of the listed options
+- gt, gte, lt, lte — comparison operators for numeric fields
+- dive — applied to slices/maps so tags on nested elements are also checked
+
+Example with multiple tags:
+
+type SignupRequest struct {
+    Email    string `json:"email" binding:"required,email"`
+    Age      int    `json:"age" binding:"required,gte=13,lte=120"`
+    Username string `json:"username" binding:"required,min=3,max=30"`
+    Role     string `json:"role" binding:"omitempty,oneof=admin editor viewer"`
+}
+
+BindJSON vs ShouldBindJSON
+
+Gin actually offers both BindJSON and ShouldBindJSON. The difference is that BindJSON automatically writes a 400 response and aborts the request chain when binding fails, whereas ShouldBindJSON simply returns the error and leaves it to your handler to decide how to respond. Most modern Gin code favors the Should* variants because they give the handler full control over the error response format, which matters when an API needs a consistent JSON error envelope across all its endpoints rather than Gin's default plain-text 400 response.
+
+Custom Validators
+
+You can register custom validation functions with the validator engine that Gin uses internally, for rules that don't fit any built-in tag, such as checking that a string matches an application-specific format:
+
+var validate *validator.Validate
+
+func bookableDate(fl validator.FieldLevel) bool {
+    date, ok := fl.Field().Interface().(time.Time)
+    if ok {
+        today := time.Now()
+        if today.After(date) {
+            return false
+        }
+    }
+    return true
+}
+
+type Booking struct {
+    CheckIn  time.Time `form:"check_in" binding:"required,bookabledate" time_format:"2006-01-02"`
+    CheckOut time.Time `form:"check_out" binding:"required,gtfield=CheckIn" time_format:"2006-01-02"`
+}
+
+func main() {
+    route := gin.Default()
+    validate = validator.New()
+    validate.RegisterValidation("bookabledate", bookableDate)
+    route.GET("/bookable", getBookable)
+    route.Run(":8085")
+}
+
+func getBookable(c *gin.Context) {
+    var b Booking
+    if err := c.ShouldBindWith(&b, binding.Query); err == nil {
+        c.JSON(http.StatusOK, gin.H{"message": "Booking dates are valid!"})
+    } else {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+    }
+}
+
+Note the gtfield=CheckIn tag on CheckOut, which is a cross-field validation ensuring the checkout date comes after the check-in date — the validator package supports several of these relational tags (eqfield, nefield, gtfield, gtefield, ltfield, ltefield) for comparing one struct field against another.
+
+
+Gin: Serving Static Files
+
+Overview
+
+Gin includes built-in helpers for serving static assets such as HTML, CSS, JavaScript, and images directly from disk, without needing a separate reverse proxy just to hand back a stylesheet. These helpers wrap Go's standard http.FileServer machinery behind Gin's routing engine.
+
+Serving a Directory
+
+router.Static("/assets", "./assets")
+
+This maps requests under the /assets URL prefix to files inside the ./assets directory on disk. A request for /assets/app.css is served from ./assets/app.css. Gin sets appropriate headers (like Content-Type based on file extension) automatically.
+
+Serving a Single File
+
+router.StaticFile("/favicon.ico", "./resources/favicon.ico")
+
+StaticFile registers a route for one specific file at one specific path, which is convenient for singleton assets like a favicon or a robots.txt that don't belong inside a whole served directory.
+
+Serving from an http.FileSystem
+
+router.StaticFS("/more_static", http.Dir("my_file_system"))
+
+StaticFS accepts any value satisfying the http.FileSystem interface, not just a plain directory path. This makes it possible to serve files bundled into the binary at compile time (via embed.FS, for example) instead of reading from the filesystem at runtime, which is useful for building a single self-contained deployable binary.
+
+Combining Static Files with Templates
+
+A typical small web application combines static asset serving with Gin's HTML template rendering:
+
+func main() {
+    router := gin.Default()
+    router.Static("/assets", "./assets")
+    router.LoadHTMLGlob("templates/*")
+
+    router.GET("/", func(c *gin.Context) {
+        c.HTML(http.StatusOK, "index.tmpl.html", gin.H{
+            "title": "Home Page",
+        })
+    })
+
+    router.Run(":8080")
+}
+
+Here, templates/*.html files are rendered dynamically per-request through c.HTML, while assets like CSS and JS referenced from those templates are served as static files through the /assets prefix. The two mechanisms are independent: template rendering happens on the fly per-request while static files are streamed straight from disk (or embedded FS) with no processing.
+
+Multiple Static Directories
+
+You can register more than one Static call for different prefixes, which is common when an application serves both application-specific assets and third-party vendored assets from separate locations:
+
+router.Static("/assets", "./assets")
+router.Static("/vendor", "./third_party/vendor")
+
+Each call is independent, and Gin resolves incoming requests to whichever registered static prefix matches, falling through to other routes if no static prefix matches at all.
+
+
+Gin: HTML Rendering and Templates
+
+Source: https://gin-gonic.com/en/docs/examples/html-rendering/
+
+Loading Templates
+
+Gin can load and render HTML templates alongside serving JSON APIs from the same router. Templates are typically loaded once at startup using LoadHTMLGlob, which accepts a glob pattern matching every template file to preload:
+
+router := gin.Default()
+router.LoadHTMLGlob("templates/*")
+
+router.GET("/index", func(c *gin.Context) {
+    c.HTML(http.StatusOK, "index.tmpl", gin.H{
+        "title": "Main website",
+    })
+})
+
+For projects with templates spread across multiple subdirectories with overlapping filenames, LoadHTMLFiles accepts an explicit list of file paths instead of a glob pattern, avoiding ambiguity between templates that happen to share a name in different folders.
+
+Rendering with Data
+
+The c.HTML method takes a status code, a template name, and a data object — commonly a gin.H map, which is just a shorthand alias for map[string]interface{} — and renders the named template with that data available inside it:
+
+c.HTML(http.StatusOK, "index.tmpl", gin.H{
+    "title": "Posts",
+    "posts": posts,
+})
+
+Inside the template file, values are accessed using Go's standard html/template syntax, such as {{ .title }} or ranging over a slice with {{ range .posts }}.
+
+Custom Template Functions
+
+Gin allows registering custom functions that templates can call, using SetFuncMap before loading templates:
+
+router.SetFuncMap(template.FuncMap{
+    "formatAsDate": formatAsDate,
+})
+router.LoadHTMLGlob("templates/*")
+
+This is useful for formatting logic — like converting a raw timestamp into a human-readable date string — that would be awkward to express directly inside the template syntax itself.
+
+Serving XML and Other Formats
+
+Beyond HTML and JSON, Gin's Context exposes equivalent rendering methods for other common formats, including c.XML, c.YAML, and c.ProtoBuf, all following the same pattern of a status code followed by the data to serialize:
+
+c.XML(http.StatusOK, gin.H{"message": "hey", "status": http.StatusOK})
+
+Combining Multiple Response Types Based on Accept Header
+
+Because a single Gin handler can call any of these rendering methods, it's common to branch based on what the client requested via its Accept header, returning JSON for API clients and HTML for browser clients hitting the very same route:
+
+router.GET("/status", func(c *gin.Context) {
+    if c.NegotiateFormat(gin.MIMEJSON, gin.MIMEHTML) == gin.MIMEJSON {
+        c.JSON(http.StatusOK, gin.H{"status": "ok"})
+        return
+    }
+    c.HTML(http.StatusOK, "status.tmpl", gin.H{"status": "ok"})
+})
+
+NegotiateFormat inspects the request's Accept header against the list of offered formats and returns whichever one the client actually prefers, letting a single endpoint serve both machine and human consumers appropriately.
+
+
+Gin: Error Handling
+
+Source: https://gin-gonic.com/en/docs/examples/using-basicauth-middleware/ and general Gin error handling patterns
+
+Attaching Errors to the Context
+
+Gin's Context provides a dedicated mechanism for accumulating errors encountered while processing a request, separate from immediately writing a response. c.Error(err) appends an error to the context's internal error list without stopping request processing:
+
+func handler(c *gin.Context) {
+    _, err := someOperation()
+    if err != nil {
+        c.Error(err)
+        c.AbortWithStatus(http.StatusInternalServerError)
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+Errors attached this way are accessible later via c.Errors, which is particularly useful in a logging middleware that runs after c.Next() and wants to record every error that occurred during the request, regardless of which handler or middleware in the chain produced it.
+
+Centralized Error-Handling Middleware
+
+A common pattern wraps the entire handler chain in a middleware that inspects c.Errors after calling c.Next(), converting accumulated errors into a consistent JSON error response:
+
+func ErrorHandler() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        c.Next()
+
+        if len(c.Errors) > 0 {
+            err := c.Errors.Last()
+            c.JSON(c.Writer.Status(), gin.H{"error": err.Error()})
+        }
+    }
+}
+
+Registering this middleware globally means individual handlers only need to call c.Error(err) and abort, without each one having to independently format its own JSON error body.
+
+Panic Recovery
+
+Gin's built-in gin.Recovery() middleware catches panics anywhere downstream in the handler chain and converts them into a 500 response instead of crashing the whole server process:
+
+router := gin.New()
+router.Use(gin.Recovery())
+
+For more control over exactly what gets logged or returned to the client when a panic occurs, gin.CustomRecovery accepts a handler function invoked with the recovered value:
+
+router.Use(gin.CustomRecoveryWithWriter(os.Stderr, func(c *gin.Context, recovered any) {
+    if err, ok := recovered.(string); ok {
+        c.String(http.StatusInternalServerError, fmt.Sprintf("error: %s", err))
+    }
+    c.AbortWithStatus(http.StatusInternalServerError)
+}))
+
+Distinguishing Client Errors from Server Errors
+
+Because c.Error can be called with an error type implementing a custom classification, many Gin applications tag errors as they're created so the centralized error handler can decide on the correct HTTP status automatically, rather than every handler manually specifying its own status code:
+
+type APIError struct {
+    Code    int
+    Message string
+}
+
+func (e *APIError) Error() string {
+    return e.Message
+}
+
+func handler(c *gin.Context) {
+    if !userExists {
+        c.Error(&APIError{Code: http.StatusNotFound, Message: "user not found"})
+        c.Abort()
+        return
+    }
+}
+
+The centralized error middleware can then type-assert the error to APIError, reading its Code field to set the correct response status, falling back to a generic 500 for errors that aren't of that type.
+
+Validation Errors as a Special Case
+
+Because binding and validation errors (from ShouldBindJSON and similar) are common and structurally different from ordinary application errors, they're often handled directly at the point of binding rather than routed through the general error-handling middleware, since a validation failure needs to surface specific per-field messages back to the client rather than a single generic error string:
+
+if err := c.ShouldBindJSON(&input); err != nil {
+    var ve validator.ValidationErrors
+    if errors.As(err, &ve) {
+        c.JSON(http.StatusUnprocessableEntity, gin.H{"errors": formatValidationErrors(ve)})
+        return
+    }
+    c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+    return
+}
+
+
+Gin: Testing HTTP Handlers
+
+Source: general Gin testing patterns building on net/http/httptest
+
+Overview
+
+Gin handlers are ordinary Go functions taking a *gin.Context, which makes them straightforward to test using Go's standard net/http/httptest package without needing to actually bind a network port. The general pattern is: construct an httptest.ResponseRecorder to capture the response, construct an *http.Request describing the test request, create a gin.Context wrapping both, invoke the handler directly, and finally assert on the recorder's captured status code and body.
+
+Testing a Simple Handler Directly
+
+func TestPingHandler(t *testing.T) {
+    gin.SetMode(gin.TestMode)
+    w := httptest.NewRecorder()
+    c, _ := gin.CreateTestContext(w)
+    c.Request = httptest.NewRequest("GET", "/ping", nil)
+
+    PingHandler(c)
+
+    assert.Equal(t, http.StatusOK, w.Code)
+    assert.JSONEq(t, `{"message":"pong"}`, w.Body.String())
+}
+
+gin.SetMode(gin.TestMode) suppresses Gin's default debug-mode console output during tests, keeping test output clean, and gin.CreateTestContext conveniently constructs both a *gin.Context and its backing *gin.Engine in one call.
+
+Testing Through the Full Router
+
+For tests that need to exercise actual routing, middleware, and path parameter extraction rather than calling a handler function directly, register routes on a real router and send a request through it:
+
+func TestGetUserRoute(t *testing.T) {
+    router := gin.Default()
+    router.GET("/users/:id", GetUserHandler)
+
+    w := httptest.NewRecorder()
+    req, _ := http.NewRequest("GET", "/users/42", nil)
+    router.ServeHTTP(w, req)
+
+    assert.Equal(t, http.StatusOK, w.Code)
+}
+
+router.ServeHTTP satisfies the standard http.Handler interface, so this approach exercises the exact same routing, path-parameter parsing, and middleware chain that would run against a real incoming request, unlike calling a handler function directly which bypasses all of that.
+
+Testing JSON Request Bodies
+
+To test a handler that binds a JSON body, construct the request with a JSON-encoded io.Reader as its body and set the Content-Type header so Gin's binding logic correctly recognizes it as JSON:
+
+func TestCreateUser(t *testing.T) {
+    router := gin.Default()
+    router.POST("/users", CreateUserHandler)
+
+    body := `{"name": "Alice", "email": "alice@example.com"}`
+    req, _ := http.NewRequest("POST", "/users", strings.NewReader(body))
+    req.Header.Set("Content-Type", "application/json")
+
+    w := httptest.NewRecorder()
+    router.ServeHTTP(w, req)
+
+    assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+Testing Middleware in Isolation
+
+Middleware can be tested the same way as handlers, by constructing a minimal router with just that middleware and a trivial downstream handler, then asserting on the behavior the middleware is responsible for (like whether it aborts the chain, or what it writes to the response):
+
+func TestAuthMiddlewareRejectsMissingToken(t *testing.T) {
+    router := gin.New()
+    router.Use(AuthMiddleware())
+    router.GET("/protected", func(c *gin.Context) {
+        c.JSON(http.StatusOK, gin.H{"status": "ok"})
+    })
+
+    req, _ := http.NewRequest("GET", "/protected", nil)
+    w := httptest.NewRecorder()
+    router.ServeHTTP(w, req)
+
+    assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+Because no Authorization header was set on the request, this test verifies the middleware aborts the request with a 401 before the downstream handler's 200 response ever gets a chance to run.
+
+Mocking Dependencies for Handler Tests
+
+Handlers that depend on a database or an external service are typically tested by injecting a mock or fake implementation of that dependency, commonly via a constructor function returning a gin.HandlerFunc closing over the dependency:
+
+func NewGetUserHandler(store UserStore) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        user, err := store.Find(c.Param("id"))
+        if err != nil {
+            c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+            return
+        }
+        c.JSON(http.StatusOK, user)
+    }
+}
+
+A test can then pass in a fake UserStore implementation backed by an in-memory map, exercising the handler's behavior without needing a real database connection at all, which keeps the test both fast and deterministic.

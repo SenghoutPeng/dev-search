@@ -1,0 +1,153 @@
+Repository Pattern - Abstracting Data Access Behind an Interface
+
+Introduction
+
+The repository pattern introduces a layer that mediates between an application's business logic and its data source, presenting something that looks like an in-memory collection of domain objects while hiding the actual details of how those objects are stored and retrieved. Rather than business logic issuing SQL queries or calling an ORM directly, it calls methods on a repository, such as FindByID or Save, without needing to know whether the underlying implementation talks to PostgreSQL, an in-memory map, or a remote API.
+
+The Core Idea: Interface vs Implementation
+
+A repository is typically expressed as two parts: an interface describing what operations are available, and one or more concrete implementations of that interface. Business logic depends only on the interface, never on a specific implementation, which is what makes the pattern useful for testing and for decoupling business logic from a specific storage technology.
+
+```go
+// The interface - what business logic depends on
+type UserRepository interface {
+    FindByID(id string) (*User, error)
+    FindByEmail(email string) (*User, error)
+    Save(user *User) error
+    Delete(id string) error
+}
+```
+
+A concrete implementation backed by GORM satisfies this interface without the interface itself knowing anything about GORM:
+
+```go
+type GormUserRepository struct {
+    db *gorm.DB
+}
+
+func (r *GormUserRepository) FindByID(id string) (*User, error) {
+    var user User
+    if err := r.db.First(&user, "id = ?", id).Error; err != nil {
+        return nil, err
+    }
+    return &user, nil
+}
+
+func (r *GormUserRepository) FindByEmail(email string) (*User, error) {
+    var user User
+    if err := r.db.Where("email = ?", email).First(&user).Error; err != nil {
+        return nil, err
+    }
+    return &user, nil
+}
+
+func (r *GormUserRepository) Save(user *User) error {
+    return r.db.Save(user).Error
+}
+
+func (r *GormUserRepository) Delete(id string) error {
+    return r.db.Delete(&User{}, "id = ?", id).Error
+}
+```
+
+Business logic (a service) is written against the interface, so it works identically regardless of which implementation is plugged in:
+
+```go
+type UserService struct {
+    repo UserRepository
+}
+
+func (s *UserService) Register(email, name string) (*User, error) {
+    existing, _ := s.repo.FindByEmail(email)
+    if existing != nil {
+        return nil, ErrEmailTaken
+    }
+    user := &User{Email: email, Name: name}
+    if err := s.repo.Save(user); err != nil {
+        return nil, err
+    }
+    return user, nil
+}
+```
+
+Why Introduce This Extra Layer
+
+Testability: Since UserService depends on the UserRepository interface rather than a concrete GORM-backed struct, tests can supply a fake, in-memory implementation instead, avoiding the need for a real database connection during unit tests:
+
+```go
+type FakeUserRepository struct {
+    users map[string]*User
+}
+
+func (f *FakeUserRepository) FindByEmail(email string) (*User, error) {
+    for _, u := range f.users {
+        if u.Email == email {
+            return u, nil
+        }
+    }
+    return nil, nil
+}
+
+func (f *FakeUserRepository) Save(user *User) error {
+    f.users[user.ID] = user
+    return nil
+}
+
+// FindByID and Delete omitted for brevity
+
+func TestRegister_RejectsDuplicateEmail(t *testing.T) {
+    repo := &FakeUserRepository{users: map[string]*User{"1": {ID: "1", Email: "a@example.com"}}}
+    svc := &UserService{repo: repo}
+    _, err := svc.Register("a@example.com", "Someone")
+    if err != ErrEmailTaken {
+        t.Fatalf("expected ErrEmailTaken, got %v", err)
+    }
+}
+```
+
+Swappable storage: If an application later needs to migrate from one database to another, or introduce a caching layer in front of the database, only the repository implementation needs to change. Business logic that depends solely on the UserRepository interface requires no modification at all.
+
+Centralized query logic: Without a repository, the same "find active users created in the last 30 days" query might get duplicated (and subtly diverge) across several controllers or services. A repository method centralizes that query in one place, so every caller shares the same, single implementation.
+
+Repository Pattern in Different Ecosystems
+
+In Go with GORM, the repository pattern is typically hand-rolled, as shown above, since GORM itself does not enforce or provide a repository abstraction — the *gorm.DB type is already usable directly, so wrapping it in a repository interface is an explicit architectural choice the developer makes.
+
+In Laravel with Eloquent, the Eloquent model itself already behaves somewhat like an active-record-style repository (via static methods like User::find() and User::where()), so introducing a separate, explicit repository layer on top of Eloquent is optional and more of a deliberate architectural decision than a built-in convention. Some Laravel projects add a thin repository interface anyway, specifically to decouple business logic from Eloquent's static, hard-to-mock method calls, at the cost of an extra layer of indirection.
+
+```php
+interface UserRepositoryInterface
+{
+    public function findByEmail(string $email): ?User;
+    public function save(User $user): void;
+}
+
+class EloquentUserRepository implements UserRepositoryInterface
+{
+    public function findByEmail(string $email): ?User
+    {
+        return User::where('email', $email)->first();
+    }
+
+    public function save(User $user): void
+    {
+        $user->save();
+    }
+}
+```
+
+In Java with Spring Data JPA, the framework provides a built-in repository abstraction directly: extending CrudRepository or JpaRepository gives an interface with save, findById, findAll, and other methods automatically implemented at runtime by Spring, without a developer needing to hand-write a concrete implementation at all. Spring Data JPA's repository abstraction is effectively the repository pattern baked directly into the framework, rather than a pattern developers must apply on top of it themselves.
+
+```java
+public interface UserRepository extends CrudRepository<User, Long> {
+    Optional<User> findByEmail(String email);
+}
+```
+
+Repository Pattern vs Plain ORM Calls
+
+It's worth distinguishing the repository pattern from simply calling an ORM's query methods directly from business logic. Calling User.where(...).first() (Eloquent) or db.First(&user) (GORM) directly inside a service method works and is common in smaller applications, but it means that service's tests need either a real database or heavy mocking of ORM internals, and it ties business logic directly to that specific ORM's API. The repository pattern's main contribution is inserting a project-defined interface between business logic and the ORM, so the ORM becomes an implementation detail hidden behind that interface rather than something business logic touches directly.
+
+When the Pattern Is Worth the Overhead
+
+For a small application with few data access patterns and no expectation of swapping databases or heavy unit testing of business logic in isolation, a hand-rolled repository layer can be unnecessary ceremony — calling the ORM directly may be simpler and perfectly adequate. The pattern earns its keep in larger applications where business logic has substantial rules worth testing independently of a real database, where multiple implementations of the same data access interface are genuinely needed (production database, in-memory fake for tests, perhaps a caching decorator), or where a team wants a clear seam between "what data does this feature need" and "how exactly is that data stored."

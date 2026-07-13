@@ -1,0 +1,414 @@
+Belongs To Associations in GORM
+
+Source: https://gorm.io/docs/belongs_to.html
+
+Overview
+
+A "belongs to" association establishes a one-to-one connection where each instance of one model is associated with exactly one instance of another model. A `belongs to` association sets up a one-to-one connection with another model, such that each instance of the declaring model "belongs to" one instance of the other model.
+
+Basic Example
+
+Consider a user-company relationship where each employee belongs to a single organization:
+
+```go
+type User struct {
+  gorm.Model
+  Name      string
+  CompanyID int
+  Company   Company
+}
+
+type Company struct {
+  ID   int
+  Name string
+}
+```
+
+The foreign key (`CompanyID`) must exist on the owning model and is automatically inferred from the associated type name combined with its primary field.
+
+Customizing Foreign Keys
+
+Override the default foreign key naming convention using the `gorm:"foreignKey"` tag:
+
+```go
+type User struct {
+  gorm.Model
+  Name         string
+  CompanyRefer int
+  Company      Company `gorm:"foreignKey:CompanyRefer"`
+}
+```
+
+Customizing References
+
+By default, GORM uses the associated model's primary field. Modify this behavior with the `references` tag:
+
+```go
+type User struct {
+  gorm.Model
+  Name      string
+  CompanyID string
+  Company   Company `gorm:"references:Code"`
+}
+
+type Company struct {
+  ID   int
+  Code string
+  Name string
+}
+```
+
+Database Constraints
+
+Define cascading behavior during migrations:
+
+```go
+type User struct {
+  gorm.Model
+  Name      string
+  CompanyID int
+  Company   Company `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+}
+```
+
+Working with Belongs To Relations
+
+Find associations
+
+```go
+db.Model(&user).Association("Company").Find(&company)
+```
+
+Append/Replace associations
+
+```go
+db.Model(&user).Association("Company").Append(&Company{Name: "company_new"})
+
+db.Model(&user).Association("Company").Replace(&Company{Name: "company_new"})
+```
+
+Delete associations
+
+```go
+db.Model(&user).Association("Company").Delete(&company)
+```
+
+Count associations
+
+```go
+db.Model(&user).Association("Company").Count()
+```
+
+Batch operations for associations
+
+```go
+// Find all roles for all users
+db.Model(&users).Association("Company").Find(&companies)
+
+// Delete User A from all Company's team
+db.Model(&users).Association("Team").Delete(&userA)
+```
+
+CRUD Operations: Use Association Mode for managing relationships
+Eager Loading: Employ `Preload` or `Joins` methods to efficiently load associated data
+
+```go
+// Preload
+db.Preload("Company").Find(&users)
+
+// Joins
+db.Joins("Company").Find(&users)
+```
+
+Belongs To vs Has One
+
+It's easy to confuse belongs to with has one, since both describe a one-to-one relationship at the Go struct level. The distinction is entirely about where the foreign key lives: in a belongs to relationship, the foreign key lives on the declaring model's own table (a User row stores its own CompanyID), whereas in a has one relationship, the foreign key lives on the associated model's table instead (a Company row would store a UserID pointing back at its owning user). Understanding which side owns the foreign key is essential for getting the gorm tags and the underlying schema correct, since GORM cannot infer this from the Go types alone in every case.
+
+Creating Records With a Belongs To Association
+
+When you create a User with a populated Company field, GORM automatically upserts the associated Company row first (if it isn't already saved), then assigns the resulting Company ID into the User's CompanyID field before saving the user itself:
+
+```go
+db.Create(&User{
+  Name: "jinzhu",
+  Company: Company{Name: "gorm labs"},
+})
+// INSERT INTO `companies` ...
+// INSERT INTO `users` ...
+```
+
+To skip creating or updating the association entirely and only use an already-known CompanyID, use Select or Omit the same way you would for a has many association:
+
+```go
+db.Omit("Company").Create(&user)
+
+// skip all associations
+db.Omit(clause.Associations).Create(&user)
+```
+
+Querying With Belongs To Conditions
+
+Because the foreign key lives directly on the owning table, filtering by a belongs to association is often a straightforward WHERE clause on the foreign key column, but GORM also supports doing this through Joins for more complex conditions that reference columns on the associated table itself:
+
+```go
+var users []User
+db.Joins("Company").Where("companies.name = ?", "gorm labs").Find(&users)
+```
+
+This produces a SQL join between users and companies, letting you filter on company attributes without having to run two separate queries or manually correlate IDs yourself.</content>
+
+
+GORM: Has Many Association
+
+Overview
+
+A "has many" relationship establishes a one-to-many connection between models. Unlike "has one," the owning model can have zero or multiple instances of the related model. Example: users can possess multiple credit cards.
+
+Declaration
+
+Define the relationship by including a slice field in the owner model:
+
+type User struct {
+  gorm.Model
+  CreditCards []CreditCard
+}
+
+type CreditCard struct {
+  gorm.Model
+  Number string
+  UserID uint
+}
+
+GORM automatically recognizes UserID as the foreign key.
+
+Retrieval
+
+Load associated records using Preload for eager loading:
+
+func GetAll(db *gorm.DB) ([]User, error) {
+    var users []User
+    err := db.Model(&User{}).Preload("CreditCards").Find(&users).Error
+    return users, err
+}
+
+Customization
+
+Custom foreign key:
+
+type User struct {
+  gorm.Model
+  CreditCards []CreditCard `gorm:"foreignKey:UserRefer"`
+}
+
+type CreditCard struct {
+  gorm.Model
+  Number    string
+  UserRefer uint
+}
+
+Custom references:
+
+type User struct {
+  gorm.Model
+  MemberNumber string
+  CreditCards []CreditCard `gorm:"foreignKey:UserNumber;references:MemberNumber"`
+}
+
+Constraints
+
+Configure database constraints during migration:
+
+type User struct {
+  gorm.Model
+  CreditCards []CreditCard `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
+}
+
+Additional Features
+
+GORM's has-many association also supports self-referential relationships (e.g. managers with team members), association-mode operations for CRUD tasks on the related records directly, and eager loading via the preload functionality shown above.
+
+Association Mode Operations
+
+Beyond simple retrieval, GORM's Association Mode exposes a full set of CRUD-style operations scoped to a specific relationship, letting you manipulate the associated records without writing raw foreign-key queries yourself.
+
+Finding associated records with additional conditions:
+
+var creditCards []CreditCard
+db.Model(&user).Where("credit_cards.number LIKE ?", "%4111%").Association("CreditCards").Find(&creditCards)
+
+Appending new associated records (inserts new rows and links them to the owner):
+
+db.Model(&user).Association("CreditCards").Append(&CreditCard{Number: "412345678901"})
+
+Replacing all associated records (removes existing associations and creates new ones in their place):
+
+db.Model(&user).Association("CreditCards").Replace([]CreditCard{
+  {Number: "12345"}, {Number: "54321"},
+})
+
+Deleting specific associated records without deleting the owner:
+
+db.Model(&user).Association("CreditCards").Delete(&creditCards[0])
+
+Clearing all associated records for a given owner:
+
+db.Model(&user).Association("CreditCards").Clear()
+
+Counting associated records without loading them into memory:
+
+count := db.Model(&user).Association("CreditCards").Count()
+
+Batch Association Operations
+
+All of the association methods above also work when the receiver is a slice, letting you operate on the associations of many owner records in one call rather than looping manually:
+
+// Find all credit cards belonging to any of these users
+var users []User
+db.Find(&users)
+db.Model(&users).Association("CreditCards").Find(&creditCards)
+
+// Delete a specific card from every user's association in one call
+db.Model(&users).Association("CreditCards").Delete(&someCard)
+
+Self-Referential Has Many
+
+A model can have a has-many relationship to itself, which is the standard way to express hierarchical data such as an organizational chart or a comment thread with replies:
+
+type Employee struct {
+  gorm.Model
+  Name       string
+  ManagerID  *uint
+  Reports    []Employee `gorm:"foreignKey:ManagerID"`
+}
+
+Here, ManagerID is a nullable foreign key pointing back at another Employee's primary key, and Reports holds every Employee whose ManagerID matches this one's ID — GORM handles the self-join the same way it would handle a relationship between two distinct model types.
+
+Polymorphic Has Many
+
+GORM also supports polymorphic associations, where a single related model (like a Comment) can belong to more than one kind of owner (a Post or a Video, for instance) using two columns to identify the owner's type and ID:
+
+type Comment struct {
+  gorm.Model
+  Content    string
+  OwnerID    uint
+  OwnerType  string
+}
+
+type Post struct {
+  gorm.Model
+  Title    string
+  Comments []Comment `gorm:"polymorphic:Owner;"`
+}
+
+The polymorphic:Owner tag tells GORM to populate OwnerID and OwnerType automatically based on which model the comment is actually attached to, letting the same Comment table back comments on posts, videos, or any other polymorphic owner without a separate join table per owner type.
+
+
+GORM: Many to Many Associations and Advanced Association Patterns
+
+Source: https://gorm.io/docs/many_to_many.html
+
+Overview
+
+A many-to-many association links two models through an intermediate join table, so either side can be related to multiple instances of the other. A classic example is users and languages, where a user can speak several languages, and a language can be spoken by many users:
+
+type User struct {
+  gorm.Model
+  Languages []Language `gorm:"many2many:user_languages;"`
+}
+
+type Language struct {
+  gorm.Model
+  Name string
+}
+
+GORM automatically creates and manages the user_languages join table, populating it with the foreign keys of both sides whenever you save the association.
+
+Customizing the Join Table
+
+The many2many tag names the join table, and additional tags let you customize the foreign key column names on either side if the defaults don't fit your schema:
+
+type User struct {
+  gorm.Model
+  Languages []Language `gorm:"many2many:user_languages;foreignKey:UserRefer;joinForeignKey:UserReferID;References:LangRefer;joinReferences:LangReferID"`
+  UserRefer uint
+}
+
+type Language struct {
+  Code     string `gorm:"primaryKey"`
+  LangRefer uint
+}
+
+Working with Many to Many Associations
+
+Retrieving associated records:
+
+db.Model(&user).Association("Languages").Find(&languages)
+
+Appending new associations without removing existing ones:
+
+db.Model(&user).Association("Languages").Append([]Language{languageZH, languageEN})
+
+Replacing the full set of associations:
+
+db.Model(&user).Association("Languages").Replace([]Language{languageZH})
+
+Removing specific associations without deleting the related records themselves:
+
+db.Model(&user).Association("Languages").Delete([]Language{languageZH})
+
+Clearing every association for a given user:
+
+db.Model(&user).Association("Languages").Clear()
+
+Counting related records:
+
+db.Model(&user).Association("Languages").Count()
+
+Self-Referential Many to Many
+
+Many-to-many relationships can also be self-referential, useful for representing something like a "friends" or "follows" relationship where both sides of the relationship are the same model type:
+
+type User struct {
+  gorm.Model
+  Friends []*User `gorm:"many2many:user_friends"`
+}
+
+Adding Extra Fields to a Join Table
+
+Sometimes a join table needs to carry its own data beyond the two foreign keys, such as a timestamp for when the association was created. In that case, define the join table as its own explicit model instead of letting GORM manage it implicitly:
+
+type UserLanguage struct {
+  UserID     uint
+  LanguageID uint
+  ProficiencyLevel string
+  CreatedAt  time.Time
+}
+
+func (UserLanguage) TableName() string {
+  return "user_languages"
+}
+
+Then register the explicit join table model via SetupJoinTable, so GORM continues to manage the many2many relationship's plumbing while also making the extra column addressable:
+
+db.SetupJoinTable(&User{}, "Languages", &UserLanguage{})
+
+Composite Association Preloading
+
+When several relationships need to be loaded together in a single query pass, chain multiple Preload calls, or use dot-notation to preload a nested relationship on an already-preloaded association:
+
+db.Preload("Languages").Preload("CreditCards").Preload("Company").Find(&users)
+
+// preload a relationship nested two levels deep
+db.Preload("Orders.Items").Find(&users)
+
+Custom Preload Conditions
+
+Preload also accepts extra query conditions applied only to the preloaded relationship, letting you eager-load just a filtered subset of the related records instead of every single one:
+
+db.Preload("Languages", "code IN ?", []string{"en", "zh"}).Find(&users)
+
+Or with a closure for more complex filtering logic, including ordering the preloaded records:
+
+db.Preload("Orders", func(db *gorm.DB) *gorm.DB {
+  return db.Order("orders.created_at DESC")
+}).Find(&users)
