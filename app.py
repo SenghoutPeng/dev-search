@@ -65,6 +65,7 @@ with st.sidebar:
     store, docs, chunks = load_store(DATA_FOLDER)
 
     top_k = st.slider("Number of chunks to retrieve", min_value=1, max_value=10, value=3)
+    similarity_threshold = st.slider("Minimum match threshold", min_value=0.0, max_value=1.0, value=0.25, step=0.05, help="Increase this to strictly require exact matches. Decrease to allow looser matches.")
     mode = st.radio("Answer mode", ["extractive", "llm"], index=0,
                      help="Extractive works with no setup. LLM mode calls the provider below.")
 
@@ -99,8 +100,8 @@ if search_clicked and query.strip():
     with st.spinner(spinner_msg):
         retrieved = store.query(query, top_k=top_k)
         
-        # Filter out irrelevant chunks (e.g., less than 25% match) to prevent hallucination
-        retrieved = [(chunk, score) for chunk, score in retrieved if score >= 0.25]
+        # Filter out irrelevant chunks to prevent hallucination
+        retrieved = [(chunk, score) for chunk, score in retrieved if score >= similarity_threshold]
 
         answer = generate_answer(query, retrieved, mode=mode, provider=provider, model=model)
 
