@@ -1,0 +1,139 @@
+Testing Comparison - Go vs Laravel (PHP) vs Spring Boot (Java)
+
+Introduction
+
+Go, Laravel, and Spring Boot each ship with different default testing tools and philosophies. Comparing them highlights how much (or how little) scaffolding each ecosystem provides out of the box, and how test isolation, mocking, and database testing are typically handled.
+
+Built-in Tooling
+
+Go: The standard library's testing package is the entire foundation — no external dependency needed for basic unit tests. Table-driven tests and go test are idiomatic and universal across the ecosystem.
+
+Laravel: PHPUnit (or increasingly Pest) plus Laravel's own TestCase subclass, which adds HTTP simulation, database assertions, and facade faking on top of plain PHPUnit. Comes pre-wired in every new Laravel project.
+
+Spring Boot: JUnit 5, Mockito, and AssertJ, all bundled in the single spring-boot-starter-test dependency. Spring Test adds framework-aware annotations (@SpringBootTest, @WebMvcTest, @DataJpaTest) for different testing scopes.
+
+Test File Organization
+
+Go:
+```
+greetings/
+  greetings.go
+  greetings_test.go
+```
+Tests live alongside the code they test, in the same package, same directory, with a _test.go suffix.
+
+Laravel:
+```
+tests/
+  Unit/
+    PriceCalculatorTest.php
+  Feature/
+    UserApiTest.php
+```
+Tests live in a separate tests/ tree, split into Unit and Feature subdirectories.
+
+Spring Boot:
+```
+src/
+  main/java/com/example/app/UserService.java
+  test/java/com/example/app/UserServiceTest.java
+```
+Tests live in a parallel src/test/java tree that mirrors the main source package structure.
+
+Writing a Basic Test
+
+Go:
+```go
+func TestAdd(t *testing.T) {
+    got := Add(2, 3)
+    if got != 5 {
+        t.Errorf("Add(2, 3) = %d, want 5", got)
+    }
+}
+```
+
+Laravel (PHPUnit):
+```php
+public function test_add(): void
+{
+    $this->assertEquals(5, add(2, 3));
+}
+```
+
+Spring Boot (JUnit 5):
+```java
+@Test
+void add() {
+    assertEquals(5, Calculator.add(2, 3));
+}
+```
+
+Go relies on manual if-checks and t.Errorf; PHPUnit and JUnit provide dedicated assertion methods (assertEquals) that produce more structured, readable failure output automatically.
+
+Mocking Dependencies
+
+Go: No built-in mocking; interfaces are the mechanism. You define an interface, write a hand-rolled or generated (via mockgen/testify) fake implementation, and inject it:
+```go
+type fakeRepo struct{}
+func (f *fakeRepo) FindByID(id int) (*User, error) { return &User{ID: id}, nil }
+```
+
+Laravel: Facade faking (Mail::fake(), Queue::fake()) covers most framework-provided side effects with a single line; PHPUnit/Mockito-style mocks handle custom classes:
+```php
+Mail::fake();
+$this->postJson('/register', [...]);
+Mail::assertSent(WelcomeEmail::class);
+```
+
+Spring Boot: Mockito's @Mock and @InjectMocks handle plain unit tests; @MockBean swaps a bean inside a running Spring context for slice tests:
+```java
+@Mock private OrderRepository repo;
+when(repo.findById(1L)).thenReturn(Optional.of(order));
+```
+
+Go leans on the language's structural typing (interfaces) rather than a mocking framework; Laravel and Spring Boot both provide dedicated mocking utilities that generate doubles from annotations or facade calls.
+
+Database Testing
+
+Go: No built-in database test helpers. Common patterns are an in-memory SQLite database, a Dockerized test database via testcontainers-go, or a repository interface swapped for an in-memory fake.
+
+Laravel: The RefreshDatabase trait wraps each test in a transaction (or re-migrates), giving every test a clean database automatically:
+```php
+use RefreshDatabase;
+$this->assertDatabaseHas('users', ['email' => 'a@example.com']);
+```
+
+Spring Boot: @DataJpaTest boots only the JPA layer against an embedded H2 database by default; Testcontainers is used when tests need to match production database behavior exactly.
+
+Laravel's RefreshDatabase trait is the most turnkey of the three — one line of code gives every feature test a clean, isolated database. Go and Spring Boot both require slightly more explicit setup (a fake repository, or a slice annotation plus configuration).
+
+Testing HTTP Endpoints
+
+Go: Use net/http/httptest to construct a request and recorder without a real network socket:
+```go
+req := httptest.NewRequest("GET", "/users/1", nil)
+w := httptest.NewRecorder()
+router.ServeHTTP(w, req)
+```
+
+Laravel: Feature tests call HTTP verbs directly as TestCase methods, with a chainable, readable assertion API:
+```php
+$this->getJson('/users/1')->assertStatus(200)->assertJson([...]);
+```
+
+Spring Boot: @WebMvcTest plus MockMvc simulates requests against the controller layer only, without a real server:
+```java
+mockMvc.perform(get("/users/1")).andExpect(status().isOk());
+```
+
+All three simulate HTTP without binding a real port, but Laravel's fluent assertion chain is generally the most concise to read, while Go's httptest is the most low-level and explicit.
+
+Running Tests
+
+Go: `go test ./...` (all packages), `go test -v` (verbose), `go test -cover` (coverage)
+Laravel: `php artisan test`, `vendor/bin/phpunit`, or `vendor/bin/pest`
+Spring Boot: `mvn test` or `./gradlew test`
+
+Summary
+
+Go's testing story favors minimalism: everything comes from the standard library, mocking is just interfaces, and there's no dedicated database-testing helper — you build your own conventions. Laravel provides the most batteries-included experience, with RefreshDatabase, factories, and facade faking covering the majority of common testing needs with almost no setup. Spring Boot sits between the two in ceremony but offers the most granular control, letting you choose exactly how much of the framework to boot for a given test through its slice annotations (@WebMvcTest, @DataJpaTest, @SpringBootTest).

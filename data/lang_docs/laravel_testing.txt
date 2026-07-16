@@ -1,0 +1,208 @@
+Laravel Testing - PHPUnit, Pest, and Laravel's Testing Helpers
+
+Introduction
+
+Laravel ships with testing support out of the box: a phpunit.xml configuration file, a tests/Feature and tests/Unit directory structure, and a base TestCase class with helpers tailored for testing HTTP requests, database state, and Eloquent models. Tests can be written with PHPUnit (the default) or Pest, a more expressive layer on top of PHPUnit that many newer Laravel projects prefer.
+
+Unit vs Feature Tests
+
+Laravel's default structure separates two kinds of tests:
+
+tests/Unit: Small, isolated tests of a single class or method, with no framework bootstrapping — Laravel's service container isn't involved. Suited to testing plain PHP logic like a value object or a calculation.
+
+tests/Feature: Broader tests that boot the full Laravel application, allowing you to make simulated HTTP requests, hit the database, and assert on responses. Most Laravel business logic (controllers, routes, middleware) is tested here rather than in Unit tests.
+
+Writing a PHPUnit Test
+
+```php
+namespace Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+use App\Services\PriceCalculator;
+
+class PriceCalculatorTest extends TestCase
+{
+    public function test_applies_discount_correctly(): void
+    {
+        $calculator = new PriceCalculator();
+        $result = $calculator->applyDiscount(100, 0.10);
+        $this->assertEquals(90, $result);
+    }
+
+    public function test_rejects_negative_discount(): void
+    {
+        $calculator = new PriceCalculator();
+        $this->expectException(InvalidArgumentException::class);
+        $calculator->applyDiscount(100, -0.5);
+    }
+}
+```
+
+Test method names must start with test_ (or use the #[Test] attribute), and each test extends Laravel's TestCase (which itself extends PHPUnit's), giving access to Laravel-specific assertion helpers even in otherwise plain tests.
+
+Writing a Feature Test with HTTP Assertions
+
+Feature tests use Laravel's HTTP testing methods (get, post, put, delete) to simulate requests without a real server, and chainable assertions to check the response:
+
+```php
+namespace Tests\Feature;
+
+use Tests\TestCase;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use App\Models\User;
+
+class UserApiTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_can_fetch_user(): void
+    {
+        $user = User::factory()->create(['name' => 'Alice']);
+
+        $response = $this->getJson("/api/users/{$user->id}");
+
+        $response->assertStatus(200)
+                  ->assertJson(['name' => 'Alice']);
+    }
+
+    public function test_creating_user_requires_email(): void
+    {
+        $response = $this->postJson('/api/users', ['name' => 'Bob']);
+
+        $response->assertStatus(422)
+                  ->assertJsonValidationErrors(['email']);
+    }
+}
+```
+
+RefreshDatabase Trait
+
+The RefreshDatabase trait resets the database to a clean state between tests, either by wrapping each test in a transaction that gets rolled back, or by re-migrating, depending on the driver. Without it, tests would leak data into each other and produce order-dependent failures. It's the standard choice for feature tests that touch the database.
+
+Model Factories
+
+Factories generate fake model instances with realistic random data, avoiding hand-written fixture data in every test:
+
+```php
+class UserFactory extends Factory
+{
+    public function definition(): array
+    {
+        return [
+            'name' => fake()->name(),
+            'email' => fake()->unique()->safeEmail(),
+            'password' => bcrypt('password'),
+        ];
+    }
+}
+```
+
+```php
+$user = User::factory()->create();
+$users = User::factory()->count(5)->create();
+$admin = User::factory()->create(['role' => 'admin']);
+```
+
+create() persists to the database; make() builds an instance without saving, useful when you only need an in-memory object.
+
+Mocking and Faking Facades
+
+Laravel facades (Mail, Queue, Storage, Event, Notification) provide fake() methods that swap the real implementation for an in-memory test double, letting you assert side effects happened without actually sending an email or dispatching a real job:
+
+```php
+public function test_registration_sends_welcome_email(): void
+{
+    Mail::fake();
+
+    $this->postJson('/register', [
+        'name' => 'Carol',
+        'email' => 'carol@example.com',
+        'password' => 'secret123',
+    ]);
+
+    Mail::assertSent(WelcomeEmail::class, function ($mail) {
+        return $mail->hasTo('carol@example.com');
+    });
+}
+```
+
+```php
+Queue::fake();
+Storage::fake('avatars');
+Event::fake([OrderShipped::class]);
+```
+
+This is the Laravel-specific equivalent of mocking: instead of manually stubbing a dependency, you swap the entire facade's backing implementation for a recording fake.
+
+Database Assertions
+
+Feature tests commonly assert directly against database state after an action:
+
+```php
+$this->assertDatabaseHas('users', ['email' => 'alice@example.com']);
+$this->assertDatabaseMissing('users', ['email' => 'deleted@example.com']);
+$this->assertDatabaseCount('orders', 3);
+```
+
+Authentication in Tests
+
+Laravel provides helpers to simulate an authenticated user without going through a real login flow:
+
+```php
+public function test_authenticated_user_can_view_dashboard(): void
+{
+    $user = User::factory()->create();
+
+    $response = $this->actingAs($user)->get('/dashboard');
+
+    $response->assertStatus(200);
+}
+
+public function test_guest_is_redirected_to_login(): void
+{
+    $response = $this->get('/dashboard');
+
+    $response->assertRedirect('/login');
+}
+```
+
+Pest - An Expressive Alternative
+
+Pest is a testing framework built on top of PHPUnit that replaces class-based test definitions with a functional, closure-based syntax. It's fully compatible with Laravel's testing helpers and factories:
+
+```php
+it('applies discount correctly', function () {
+    $calculator = new PriceCalculator();
+    expect($calculator->applyDiscount(100, 0.10))->toBe(90);
+});
+
+it('can fetch a user', function () {
+    $user = User::factory()->create(['name' => 'Alice']);
+
+    $this->getJson("/api/users/{$user->id}")
+        ->assertStatus(200)
+        ->assertJson(['name' => 'Alice']);
+});
+```
+
+Pest supports the same underlying assertions and Laravel test helpers, but with less boilerplate — no class declaration, no test_ prefix, and expect() reads closer to natural language than assertEquals.
+
+Running Tests
+
+```
+php artisan test
+php artisan test --filter=UserApiTest
+vendor/bin/phpunit
+vendor/bin/pest
+```
+
+php artisan test wraps PHPUnit or Pest with nicer formatted output and integrates with Laravel's testing configuration automatically.
+
+Best Practices
+
+Use RefreshDatabase on any feature test that touches the database, to keep tests isolated from each other.
+Prefer factories over hand-written arrays for building test model instances.
+Fake external side effects (Mail, Queue, Storage, Event) rather than letting tests send real emails or dispatch real jobs.
+Keep Unit tests free of database and HTTP concerns; push anything that needs the framework into Feature tests.
+Use actingAs() to simulate authentication rather than performing a real login flow in every test.
+Assert on both the HTTP response and the resulting database state when a test covers a write operation.

@@ -1,0 +1,123 @@
+Testing Fundamentals - Concepts Behind Automated Testing
+
+Introduction
+
+Automated testing means writing code that verifies other code behaves correctly, and running that verification automatically instead of checking by hand. Tests catch regressions before they reach production, document expected behavior, and give developers confidence to change code without breaking it silently.
+
+The Testing Pyramid
+
+The testing pyramid is a model for how many tests of each kind a healthy codebase should have, shaped like a pyramid because the number of tests should shrink as you move up in scope.
+
+Unit tests: Form the base. Test a single function, method, or class in isolation, with all dependencies replaced by test doubles. Fast (milliseconds), cheap to write, and pinpoint failures precisely. A healthy suite has many of these.
+
+Integration tests: Sit in the middle. Test how two or more components work together — for example, a service class talking to a real database, or an HTTP client hitting a real API. Slower than unit tests because they exercise real infrastructure, but they catch bugs that mocks hide, like a wrong SQL column name or a serialization mismatch.
+
+End-to-end (E2E) tests: Sit at the top. Test a complete user flow through the whole system, often through a real browser or HTTP client hitting a running application. Slowest and most brittle, so a healthy suite has relatively few. They catch issues that only appear when everything is wired together.
+
+The pyramid shape is a guideline, not a law: it says most of your confidence should come from cheap, fast unit tests, with fewer, more expensive tests as scope grows, because each E2E test costs far more to write, run, and maintain than a unit test.
+
+Unit Testing Concepts
+
+A unit test exercises one unit of behavior with all external dependencies (database, network, filesystem, other services) replaced by test doubles, so the same input always produces the same, fast, deterministic result.
+
+Arrange-Act-Assert (AAA) is the standard structure for a test body:
+
+```
+// Arrange: set up inputs and dependencies
+user := User{Name: "Alice", Age: 17}
+
+// Act: call the code under test
+err := ValidateAge(user)
+
+// Assert: check the outcome
+if err == nil {
+    t.Error("expected an error for underage user")
+}
+```
+
+Test Doubles
+
+Test doubles are fake stand-ins for real dependencies used to isolate the code under test. There are several kinds, each suited to a different purpose:
+
+Dummy: A placeholder object passed around but never actually used, just needed to satisfy a function signature.
+
+Stub: Returns hardcoded, canned responses to calls made during the test, without any real logic behind them.
+
+Mock: Like a stub, but also records how it was called (which methods, how many times, with what arguments), so the test can assert that specific interactions happened.
+
+Fake: A working, simplified implementation, such as an in-memory database used in place of a real one — behaves correctly but takes a shortcut, like skipping persistence to disk.
+
+Spy: Wraps a real object and records calls made to it while still delegating to the real implementation.
+
+Mocking Frameworks
+
+Most languages have libraries dedicated to generating test doubles automatically instead of hand-writing them: Go has testify/mock and gomock, Java has Mockito, PHP has PHPUnit's built-in mock builder and Mockery, JavaScript has Jest's built-in mocking and Sinon. These frameworks let you declare expected calls and return values in a few lines instead of writing a full fake class by hand.
+
+Assertions
+
+An assertion is a statement that a condition must hold true, or the test fails. Assertion libraries provide readable helpers beyond plain if-checks:
+
+```
+assertEqual(actual, expected)
+assertTrue(condition)
+assertThrows(SomeException.class, () -> riskyCall())
+assertNull(value)
+```
+
+Clear assertion failure messages (showing both actual and expected values) are essential — a failing CI run with a vague message like "assertion failed" wastes far more time than one that prints "expected 200, got 404".
+
+Test Fixtures and Setup/Teardown
+
+A fixture is the fixed baseline state a test needs before it runs — sample data, a configured object, a temporary directory. Setup code (often named setUp, beforeEach, or a constructor pattern) builds this state before each test; teardown code (tearDown, afterEach) cleans it up afterward, closing connections or deleting temp files so tests don't leak state into each other.
+
+```
+beforeEach(() => {
+    db = createInMemoryDatabase();
+    db.seed(testUsers);
+});
+
+afterEach(() => {
+    db.close();
+});
+```
+
+Reusing fixtures across many tests keeps test code from being 90% repeated setup boilerplate.
+
+Code Coverage
+
+Code coverage measures what percentage of your source code was executed while the test suite ran, usually reported as a percentage of lines, branches, or statements covered. High coverage doesn't guarantee correctness — a test can execute a line without actually asserting anything meaningful about it — but low coverage reliably signals under-tested code. Most teams target 70-90% coverage rather than 100%, since chasing the last few percent (error paths that are hard to trigger, defensive code) often has poor return on investment.
+
+Test-Driven Development (TDD)
+
+TDD is a workflow where you write a failing test before writing the implementation, following a short red-green-refactor loop:
+
+1. Red: Write a test for behavior that doesn't exist yet; run it and watch it fail.
+2. Green: Write the minimum code needed to make the test pass.
+3. Refactor: Clean up the implementation (and test) while keeping the test passing.
+
+Proponents argue this produces better-designed, more testable code because you're forced to think about the interface before the implementation. Critics note it can slow down exploratory work where the right design isn't known yet.
+
+Continuous Integration and Testing
+
+In a CI pipeline, the test suite runs automatically on every push or pull request, blocking merges when tests fail. This only works if the suite is fast and reliable — a slow suite (many minutes) discourages frequent commits, and a flaky suite (tests that fail intermittently for reasons unrelated to the code change) trains developers to ignore failures, which defeats the purpose entirely. Keeping unit tests fast and isolated, and keeping the number of slow E2E tests small, is what keeps a CI pipeline useful rather than becoming a bottleneck.
+
+Common Anti-Patterns
+
+Testing implementation details instead of behavior: A test that breaks whenever you refactor internal code, even though external behavior is unchanged, is testing the wrong thing and actively discourages refactoring.
+
+Overusing mocks: Mocking every single dependency can produce tests that pass even when the real system is broken, because the mock never reflects reality. Integration tests exist precisely to catch what over-mocked unit tests miss.
+
+Shared mutable state between tests: Tests that depend on running in a specific order, or that leave data behind for the next test to accidentally depend on, are a common source of flakiness.
+
+Slow unit tests: A "unit" test that hits a real database or makes a network call isn't a unit test anymore — it's an integration test wearing a unit test's name, and it should be measured and treated accordingly.
+
+Testing Best Practices
+
+Keep unit tests fast, isolated, and deterministic — no shared state, no real I/O.
+Name tests descriptively so a failure is understandable from the test name alone.
+Test behavior and outcomes, not internal implementation details.
+Prefer many small, focused tests over few large ones that assert many things at once.
+Use fakes or in-memory implementations over heavy mocking where practical.
+Keep the test pyramid shape: many unit tests, fewer integration tests, few E2E tests.
+Treat a flaky test as a bug to fix or delete, not something to re-run until green.
+Run the full suite in CI on every change before merging.

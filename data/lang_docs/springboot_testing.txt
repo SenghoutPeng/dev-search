@@ -1,0 +1,220 @@
+Spring Boot Testing - JUnit, Mockito, and Spring Test
+
+Introduction
+
+Spring Boot ships with the spring-boot-starter-test dependency, which bundles JUnit 5 (the test runner and assertion framework), Mockito (mocking), AssertJ (fluent assertions), and Spring's own testing utilities. This one starter covers unit, integration, and web-layer testing without adding separate dependencies.
+
+JUnit 5 Basics
+
+A test class contains methods annotated @Test. JUnit discovers and runs every @Test method automatically:
+
+```java
+class CalculatorTest {
+
+    @Test
+    void addsTwoNumbers() {
+        Calculator calc = new Calculator();
+        int result = calc.add(2, 3);
+        assertEquals(5, result);
+    }
+
+    @Test
+    void throwsOnDivideByZero() {
+        Calculator calc = new Calculator();
+        assertThrows(ArithmeticException.class, () -> calc.divide(1, 0));
+    }
+}
+```
+
+@BeforeEach runs before every test method, typically to set up fresh fixtures; @AfterEach runs after each; @BeforeAll and @AfterAll run once for the whole class and must be static:
+
+```java
+class UserServiceTest {
+
+    private UserService service;
+
+    @BeforeEach
+    void setUp() {
+        service = new UserService(new InMemoryUserRepository());
+    }
+
+    @Test
+    void createsUserWithGeneratedId() {
+        User user = service.create("alice@example.com");
+        assertNotNull(user.getId());
+    }
+}
+```
+
+Mocking with Mockito
+
+Mockito creates test doubles for dependencies so a unit test can isolate the class under test from collaborators like repositories or external clients:
+
+```java
+@ExtendWith(MockitoExtension.class)
+class OrderServiceTest {
+
+    @Mock
+    private OrderRepository orderRepository;
+
+    @InjectMocks
+    private OrderService orderService;
+
+    @Test
+    void returnsOrderWhenFound() {
+        Order order = new Order(1L, "shipped");
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
+
+        Order result = orderService.getOrder(1L);
+
+        assertEquals("shipped", result.getStatus());
+        verify(orderRepository).findById(1L);
+    }
+
+    @Test
+    void throwsWhenOrderMissing() {
+        when(orderRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThrows(OrderNotFoundException.class, () -> orderService.getOrder(99L));
+    }
+}
+```
+
+@Mock creates a mock object; @InjectMocks creates a real instance of the class under test and injects the mocks into its constructor or fields. when(...).thenReturn(...) stubs a method call; verify(...) asserts the mock was actually invoked, optionally with times(n) to check call count.
+
+@SpringBootTest - Full Integration Tests
+
+@SpringBootTest boots the entire Spring application context, wiring real beans together, which makes it the slowest but most realistic kind of Spring test:
+
+```java
+@SpringBootTest
+class UserIntegrationTest {
+
+    @Autowired
+    private UserService userService;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Test
+    void savedUserCanBeRetrieved() {
+        User saved = userService.create("bob@example.com");
+        Optional<User> found = userRepository.findById(saved.getId());
+        assertTrue(found.isPresent());
+    }
+}
+```
+
+Because it loads the whole context, @SpringBootTest is reserved for genuine end-to-end style checks; most tests should use narrower slices instead.
+
+Test Slices
+
+Spring Boot provides "slice" annotations that load only the beans relevant to one layer, keeping tests fast while still exercising real framework wiring.
+
+@WebMvcTest loads only the web layer (controllers, filters, converters) without starting the full context or connecting to a database. Combined with MockMvc, it tests controller behavior — routing, request binding, status codes, JSON serialization — while service dependencies are mocked:
+
+```java
+@WebMvcTest(UserController.class)
+class UserControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockBean
+    private UserService userService;
+
+    @Test
+    void getUserReturns200AndJson() throws Exception {
+        when(userService.findById(1L)).thenReturn(new User(1L, "alice@example.com"));
+
+        mockMvc.perform(get("/users/1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.email").value("alice@example.com"));
+    }
+
+    @Test
+    void getUnknownUserReturns404() throws Exception {
+        when(userService.findById(99L)).thenThrow(new UserNotFoundException());
+
+        mockMvc.perform(get("/users/99"))
+            .andExpect(status().isNotFound());
+    }
+}
+```
+
+@DataJpaTest loads only JPA-related beans and configures an embedded in-memory database (like H2) by default, useful for testing repository queries against real SQL without the overhead of the full application:
+
+```java
+@DataJpaTest
+class UserRepositoryTest {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Test
+    void findsUserByEmail() {
+        userRepository.save(new User(null, "carol@example.com"));
+
+        Optional<User> found = userRepository.findByEmail("carol@example.com");
+
+        assertTrue(found.isPresent());
+    }
+}
+```
+
+@MockBean vs @Mock
+
+@MockBean (Spring) replaces a bean in the Spring application context with a Mockito mock, used inside slice tests like @WebMvcTest where the controller needs a real Spring-managed dependency graph but you want to fake out one specific bean. Plain @Mock (Mockito) creates a standalone mock with no Spring context involved at all, used in pure unit tests that don't need Spring wiring.
+
+Testing with a Real Database via Testcontainers
+
+For integration tests that need to match production behavior more closely than an in-memory H2 database allows, Testcontainers spins up a real database (Postgres, MySQL) in a Docker container for the duration of the test run:
+
+```java
+@SpringBootTest
+@Testcontainers
+class OrderRepositoryIntegrationTest {
+
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
+
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+    }
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    @Test
+    void persistsOrderAcrossRestart() {
+        orderRepository.save(new Order(null, "pending"));
+        assertEquals(1, orderRepository.count());
+    }
+}
+```
+
+This catches issues an in-memory database can hide, such as database-specific SQL dialect differences or constraint behavior.
+
+Assertions with AssertJ
+
+AssertJ provides fluent, chainable assertions that read closer to natural language than plain JUnit assertions:
+
+```java
+assertThat(user.getEmail()).isEqualTo("alice@example.com");
+assertThat(orders).hasSize(3).extracting(Order::getStatus).contains("shipped");
+assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+```
+
+Running Tests
+
+Maven: `mvn test` runs the test suite; `mvn test -Dtest=UserServiceTest` runs a single class.
+Gradle: `./gradlew test` runs the test suite; `./gradlew test --tests UserServiceTest` runs a single class.
+
+Best Practices
+
+Prefer narrow slice tests (@WebMvcTest, @DataJpaTest) over @SpringBootTest when you don't need the full context — they run in a fraction of the time.
+Use @Mock/@InjectMocks for pure unit tests of service classes with no Spring dependency.
+Reserve Testcontainers-backed tests for the small set of cases where database-specific behavior actually matters.
+Keep test data setup in @BeforeEach rather than duplicating it in every test method.
+Name test methods after the behavior being verified, not the method under test.
