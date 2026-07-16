@@ -21,7 +21,7 @@ PROVIDERS = ["gemini", "ollama"]
 # Models users can pick from in the UI (dropdown-only, no free text input).
 AVAILABLE_MODELS = {
     "gemini": ["gemini-flash-lite-latest", "gemini-2.0-flash", "gemini-2.5-pro"],
-    "ollama": ["phi3:mini", "llama3.1"],
+    "ollama": ["phi3:mini"],
 }
 
 DEFAULT_MODELS = {provider: models[0] for provider, models in AVAILABLE_MODELS.items()}
