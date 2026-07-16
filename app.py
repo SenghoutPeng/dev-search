@@ -98,6 +98,10 @@ if search_clicked and query.strip():
     spinner_msg = "Searching documents..." if mode == "extractive" else "Searching documents and generating answer..."
     with st.spinner(spinner_msg):
         retrieved = store.query(query, top_k=top_k)
+        
+        # Filter out irrelevant chunks (e.g., less than 25% match) to prevent hallucination
+        retrieved = [(chunk, score) for chunk, score in retrieved if score >= 0.25]
+
         answer = generate_answer(query, retrieved, mode=mode, provider=provider, model=model)
 
     st.subheader("Answer")
