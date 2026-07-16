@@ -60,7 +60,7 @@ def call_ollama(system: str, user: str, model: str) -> str:
     import ollama
 
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    return ollama.chat(model=model, messages=messages)["message"]["content"]
+    return ollama.chat(model=model, messages=messages, options={"temperature": 0.0})["message"]["content"]
 
 
 def call_gemini(system: str, user: str, model: str) -> str:
