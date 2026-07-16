@@ -5,7 +5,7 @@ Run with:
     streamlit run app.py
 
 Document loading, sentence-transformer embeddings, cosine-similarity retrieval,
-and LLM generation (local via Ollama, or cloud via Claude/OpenAI/Gemini) wired
+and LLM generation (local via Ollama, or cloud via Gemini) wired
 into a Streamlit interface.
 """
 import streamlit as st
@@ -73,7 +73,7 @@ with st.sidebar:
     if mode == "llm":
         provider = st.selectbox(
             "Model provider", PROVIDERS, index=0,
-            help="gemini/claude/openai need the matching API key set. ollama runs locally for free.",
+            help="gemini needs the matching API key set. ollama runs locally for free.",
         )
         model = st.selectbox("Model", AVAILABLE_MODELS[provider])
 

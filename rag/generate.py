@@ -7,11 +7,8 @@ Two answer modes:
 - "llm": sends the query and retrieved chunks to a language model, which must
   answer using only that context and cite which source(s) it used.
 
-For "llm" mode, several providers are supported and selectable at runtime:
 - gemini:  Google API (needs GOOGLE_API_KEY) — default provider
 - ollama:  local, free, no API key
-- claude:  Anthropic API (needs ANTHROPIC_API_KEY)
-- openai:  OpenAI API (needs OPENAI_API_KEY)
 """
 
 import os
@@ -19,21 +16,17 @@ from typing import List, Tuple
 
 from .ingest import Chunk
 
-PROVIDERS = ["gemini", "ollama", "claude", "openai"]
+PROVIDERS = ["gemini", "ollama"]
 
 # Models users can pick from in the UI (dropdown-only, no free text input).
 AVAILABLE_MODELS = {
     "gemini": ["gemini-flash-lite-latest", "gemini-2.0-flash", "gemini-2.5-pro"],
     "ollama": ["phi3:mini", "llama3.1"],
-    "claude": ["claude-sonnet-4-6", "claude-haiku-4-5"],
-    "openai": ["gpt-4o-mini", "gpt-4o"],
 }
 
 DEFAULT_MODELS = {provider: models[0] for provider, models in AVAILABLE_MODELS.items()}
 
 REQUIRED_ENV_VAR = {
-    "claude": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
     "gemini": "GOOGLE_API_KEY",
 }
 
@@ -70,25 +63,6 @@ def call_ollama(system: str, user: str, model: str) -> str:
     return ollama.chat(model=model, messages=messages)["message"]["content"]
 
 
-def call_claude(system: str, user: str, model: str) -> str:
-    import anthropic
-
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    response = client.messages.create(
-        model=model, max_tokens=500, system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-    return response.content[0].text
-
-
-def call_openai(system: str, user: str, model: str) -> str:
-    from openai import OpenAI
-
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    return client.chat.completions.create(model=model, messages=messages).choices[0].message.content
-
-
 def call_gemini(system: str, user: str, model: str) -> str:
     from google import genai
     from google.genai import types
@@ -100,8 +74,6 @@ def call_gemini(system: str, user: str, model: str) -> str:
 
 PROVIDER_CALLS = {
     "ollama": call_ollama,
-    "claude": call_claude,
-    "openai": call_openai,
     "gemini": call_gemini,
 }
 

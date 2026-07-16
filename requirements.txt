@@ -11,6 +11,5 @@ python-dotenv
 
 # LLM providers (only install/configure the ones you plan to use)
 ollama          # local, free — requires `ollama serve` running and a model pulled
-anthropic       # Claude — requires ANTHROPIC_API_KEY
-openai          # GPT — requires OPENAI_API_KEY
+
 google-genai    # Gemini — requires GOOGLE_API_KEY
