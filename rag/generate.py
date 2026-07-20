@@ -12,6 +12,7 @@ Two answer modes:
 """
 
 import os
+import time
 from typing import List, Tuple
 
 from .ingest import Chunk
@@ -64,13 +65,36 @@ def call_ollama(system: str, user: str, model: str) -> str:
     return ollama.chat(model=model, messages=messages, options={"temperature": 0.0})["message"]["content"]
 
 
+class RateLimitError(Exception):
+    """Raised when a provider's rate limit is hit and retries are exhausted."""
+
+
+GEMINI_RATE_LIMIT_MESSAGE = (
+    "Gemini is rate-limited right now (too many requests). Please wait a moment "
+    "and try again, or switch providers/models in the sidebar."
+)
+
+# Retry attempts + backoff (seconds) for transient Gemini rate-limit (429) responses.
+RATE_LIMIT_RETRY_DELAYS = [1, 2, 4]
+
+
 def call_gemini(system: str, user: str, model: str) -> str:
     from google import genai
-    from google.genai import types
+    from google.genai import errors, types
 
     client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
     config = types.GenerateContentConfig(system_instruction=system)
-    return client.models.generate_content(model=model, contents=user, config=config).text
+
+    for delay in [*RATE_LIMIT_RETRY_DELAYS, None]:
+        try:
+            return client.models.generate_content(model=model, contents=user, config=config).text
+        except errors.ClientError as e:
+            if e.code == 429 and delay is not None:
+                time.sleep(delay)
+                continue
+            if e.code == 429:
+                raise RateLimitError(GEMINI_RATE_LIMIT_MESSAGE) from e
+            raise
 
 
 PROVIDER_CALLS = {
@@ -92,6 +116,8 @@ def llm_answer(query: str, retrieved: List[Tuple[Chunk, float]], provider: str =
 
     try:
         return PROVIDER_CALLS[provider](SYSTEM_PROMPT, user_prompt, model)
+    except RateLimitError as e:
+        return str(e)
     except Exception as e:
         return f"[{provider} call failed: {e}]"
 

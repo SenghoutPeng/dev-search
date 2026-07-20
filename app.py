@@ -8,6 +8,8 @@ Document loading, sentence-transformer embeddings, cosine-similarity retrieval,
 and LLM generation (local via Ollama, or cloud via Gemini) wired
 into a Streamlit interface.
 """
+import time
+
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -66,8 +68,8 @@ with st.sidebar:
 
     top_k = st.slider("Number of chunks to retrieve", min_value=1, max_value=10, value=3)
     similarity_threshold = st.slider("Minimum match threshold", min_value=0.0, max_value=1.0, value=0.25, step=0.05, help="Increase this to strictly require exact matches. Decrease to allow looser matches.")
-    mode = st.radio("Answer mode", ["extractive", "llm"], index=0,
-                     help="Extractive works with no setup. LLM mode calls the provider below.")
+    mode = st.radio("Answer mode", ["llm", "extractive"], index=0,
+                     help="LLM mode calls the provider below. Extractive works with no setup.")
 
     provider = None
     model = None
@@ -103,9 +105,12 @@ if search_clicked and query.strip():
         # Filter out irrelevant chunks to prevent hallucination
         retrieved = [(chunk, score) for chunk, score in retrieved if score >= similarity_threshold]
 
+        start_time = time.perf_counter()
         answer = generate_answer(query, retrieved, mode=mode, provider=provider, model=model)
+        elapsed = time.perf_counter() - start_time
 
     st.subheader("Answer")
+    st.caption(f"Generated in {elapsed:.2f}s")
     if not retrieved:
         st.info(answer)
     elif mode == "extractive":
