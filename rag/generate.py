@@ -44,9 +44,32 @@ SYSTEM_PROMPT = (
 )
 
 
+# Sentence-transformer cosine similarity has a noise floor around 0.15-0.26 for
+# *any* query against this corpus, even off-topic ones ("what is messi" scores
+# ~0.26), while genuine on-topic matches score 0.5+. The sidebar's retrieval
+# filter (default 0.25) sits too close to that floor to catch borderline noise,
+# so this threshold gates whether a result is confident enough to present as an
+# answer rather than just being retrieved.
+CONFIDENT_MATCH_THRESHOLD = 0.35
+
+
+def is_confident_match(retrieved: List[Tuple[Chunk, float]]) -> bool:
+    return bool(retrieved) and retrieved[0][1] >= CONFIDENT_MATCH_THRESHOLD
+
+
+def no_confident_match_message(retrieved: List[Tuple[Chunk, float]]) -> str:
+    best_score = retrieved[0][1]
+    return (
+        f"No passage closely matches that question (best match was only {best_score:.0%} "
+        "similar). This is likely outside the indexed documents."
+    )
+
+
 def extractive_answer(query: str, retrieved: List[Tuple[Chunk, float]]) -> str:
     if not retrieved:
         return "No relevant passages were found for that query."
+    if not is_confident_match(retrieved):
+        return no_confident_match_message(retrieved)
     lines = [f"Top passages related to: “{query}”\n"]
     for chunk, score in retrieved:
         lines.append(f"[{chunk.doc_title}, score={score:.2f}] {chunk.text}\n")
@@ -106,6 +129,8 @@ PROVIDER_CALLS = {
 def llm_answer(query: str, retrieved: List[Tuple[Chunk, float]], provider: str = "gemini", model: str = None) -> str:
     if not retrieved:
         return "No relevant passages were found for that query."
+    if not is_confident_match(retrieved):
+        return no_confident_match_message(retrieved)
 
     env_var = REQUIRED_ENV_VAR.get(provider)
     if env_var and not os.environ.get(env_var):

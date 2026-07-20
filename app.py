@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 from rag.ingest import load_documents, build_chunk_records
 from rag.embed_store import VectorStore
-from rag.generate import generate_answer, PROVIDERS, AVAILABLE_MODELS
+from rag.generate import generate_answer, is_confident_match, PROVIDERS, AVAILABLE_MODELS
 
 DATA_FOLDER = "data/lang_docs"
 
@@ -111,7 +111,7 @@ if search_clicked and query.strip():
 
     st.subheader("Answer")
     st.caption(f"Generated in {elapsed:.2f}s")
-    if not retrieved:
+    if not retrieved or (mode == "extractive" and not is_confident_match(retrieved)):
         st.info(answer)
     elif mode == "extractive":
         for chunk, score in retrieved:
