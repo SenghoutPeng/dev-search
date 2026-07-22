@@ -117,7 +117,7 @@ User Query -> Create Query Embedding -> Search Chroma Vector Database -> Retriev
 # Project Structure
 
 ```
-final/
+dev-search/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .dockerignore
@@ -125,7 +125,8 @@ final/
 ├── app.py
 ├── requirements.txt
 ├── README.md
-├── EVALUATION.md
+├── evaluation.pdf
+├── architecture.png
 ├── data/
 │   └── lang_docs/
 └── rag/
